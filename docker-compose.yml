@@ -1,0 +1,32 @@
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LOGFIRE_TOKEN=${LOGFIRE_TOKEN:-}
+      - MODEL_NAME=${MODEL_NAME:-openai:gpt-4o}
+      - DEBUG=${DEBUG:-false}
+    stdin_open: true
+    tty: true
+    # Override command for interactive mode
+    command: ["interactive"]
+
+  # Development container with source mounted
+  agent-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - ./src:/app/src:ro
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LOGFIRE_TOKEN=${LOGFIRE_TOKEN:-}
+      - MODEL_NAME=${MODEL_NAME:-openai:gpt-4o}
+      - DEBUG=true
+    working_dir: /app
+    command: ["python", "-m", "src.main", "interactive"]
+    stdin_open: true
+    tty: true

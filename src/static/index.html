@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PydanKit</title>
+    <link rel="icon" type="image/svg+xml" href="/static/assets/logo-white.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        .chat-container {
+            height: calc(100vh - 240px);
+            min-height: 400px;
+        }
+        /* Custom Scrollbar for Webkit */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569; 
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+        .dark ::-webkit-scrollbar-thumb:hover {
+            background: #64748b; 
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 h-screen overflow-hidden flex flex-col transition-colors duration-200">
+
+    <!-- Mobile Sidebar Backdrop -->
+    <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-900/50 z-20 hidden md:hidden glass transition-opacity" onclick="toggleSidebar()"></div>
+
+    <!-- Header -->
+    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 md:px-6 py-4 flex justify-between items-center shrink-0 z-30 relative">
+        <div class="flex items-center gap-3">
+            <!-- Mobile Menu Button -->
+            <button onclick="toggleSidebar()" class="md:hidden p-2 -ml-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-lg">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
+            
+            <div class="w-8 h-8 bg-slate-900 dark:bg-slate-800 rounded-lg flex items-center justify-center shadow-sm p-1">
+                <img src="/static/assets/logo.svg" alt="Logo" class="w-5 h-5 brightness-0 invert" />
+            </div>
+            <h1 class="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">PydanKit</h1>
+        </div>
+        
+        <div class="flex items-center gap-2 md:gap-4">
+            <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <span id="status-indicator" class="w-2 h-2 rounded-full bg-slate-400"></span>
+                <span id="status-text" class="text-xs font-medium text-slate-600 dark:text-slate-400 hidden sm:inline">Connecting...</span>
+            </div>
+
+            <!-- Theme Toggle -->
+            <button onclick="toggleTheme()" class="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors" aria-label="Toggle Dark Mode">
+                <!-- Sun Icon -->
+                <svg id="sun-icon" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+                <!-- Moon Icon -->
+                <svg id="moon-icon" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden relative">
+        
+        <!-- Sidebar (Info Panel) -->
+        <aside id="sidebar" class="absolute inset-y-0 left-0 z-30 w-72 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transform -translate-x-full md:translate-x-0 md:static transition-transform duration-300 ease-in-out flex flex-col h-full shadow-xl md:shadow-none">
+            
+            <div class="flex-1 overflow-y-auto p-6">
+                <!-- Mobile Close Button -->
+                <div class="md:hidden flex justify-end mb-4">
+                    <button onclick="toggleSidebar()" class="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Configuration Error Alert -->
+                <div id="config-error" class="hidden mb-6">
+                    <div class="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl p-4">
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-rose-500 dark:text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <div class="flex-1 min-w-0">
+                                <h3 class="text-sm font-semibold text-rose-800 dark:text-rose-300">Configuration Error</h3>
+                                <p id="config-error-message" class="text-xs text-rose-700 dark:text-rose-400 mt-1 break-words"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Section -->
+                <div class="mb-8">
+                    <h2 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">System Status</h2>
+                    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-600 dark:text-slate-300">API Health</span>
+                            <span id="health-status" class="text-sm font-medium text-slate-400 dark:text-slate-500">--</span>
+                        </div>
+                        <div class="pt-3 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                            <span class="text-sm text-slate-600 dark:text-slate-300">Model</span>
+                            <span id="model-name" class="text-sm font-medium text-slate-900 dark:text-slate-100">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration Section -->
+                <div class="mb-8">
+                    <h2 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">Configuration</h2>
+                    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-600 dark:text-slate-300">Debug Mode</span>
+                            <span id="debug-status" class="text-sm font-medium text-slate-400 dark:text-slate-500">--</span>
+                        </div>
+                        <div class="pt-3 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                            <span class="text-sm text-slate-600 dark:text-slate-300">Logfire</span>
+                            <span id="logfire-status" class="text-sm font-medium text-slate-400 dark:text-slate-500">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tools Section -->
+                <div>
+                    <h2 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">Available Tools</h2>
+                    <div id="tools-list" class="flex flex-wrap gap-2">
+                        <span class="text-xs text-slate-400 italic">Loading tools...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Info -->
+            <div class="p-6 border-t border-slate-200 dark:border-slate-800 text-center shrink-0">
+                 <p class="text-xs text-slate-400 dark:text-slate-500">PydanKit v1.0</p>
+            </div>
+        </aside>
+
+        <!-- Chat Area -->
+        <section class="flex-1 flex flex-col bg-white dark:bg-slate-900 relative min-w-0">
+            
+            <!-- Messages -->
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scroll-smooth">
+                <div class="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
+                    <div class="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
+                        <svg class="w-6 h-6 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                    </div>
+                    <p class="text-slate-500 dark:text-slate-400 text-sm">Start a conversation with your agent</p>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 md:p-6 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 z-10">
+                <form id="chat-form" class="relative max-w-3xl mx-auto">
+                    <input
+                        type="text"
+                        id="chat-input"
+                        placeholder="Type your message..."
+                        class="w-full pl-5 pr-14 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:focus:ring-slate-100/10 focus:border-slate-400 dark:focus:border-slate-500 transition-all text-sm shadow-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                        autocomplete="off"
+                    >
+                    <button
+                        type="submit"
+                        id="send-button"
+                        class="absolute right-2 top-2 p-1.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 dark:hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-slate-900 dark:focus:ring-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                    </button>
+                </form>
+                <div class="text-center mt-2">
+                    <p class="text-[10px] text-slate-400 dark:text-slate-500">AI can make mistakes. Please verify important information.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
