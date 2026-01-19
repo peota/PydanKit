@@ -150,7 +150,7 @@ function setConfigErrorState(info) {
 
 function appendMessage(role, content) {
     const messageDiv = document.createElement('div');
-    messageDiv.className = `flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+    messageDiv.className = `max-w-4xl mx-auto flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`;
 
     const isUser = role === 'user';
 
@@ -272,7 +272,7 @@ async function sendMessage(prompt) {
 
 function createAgentMessagePlaceholder() {
     const messageDiv = document.createElement('div');
-    messageDiv.className = 'flex w-full justify-start';
+    messageDiv.className = 'max-w-4xl mx-auto flex w-full justify-start';
 
     const avatarHtml = `
         <div class="w-8 h-8 rounded-full bg-slate-900 dark:bg-slate-800 flex items-center justify-center shrink-0 mr-3 mt-1 shadow-sm p-1.5">
