@@ -23,6 +23,8 @@ from pydantic import BaseModel, Field
 from src.agent import get_agent_info, run_agent, run_agent_stream
 from src.config import get_settings
 from src.dependencies import AgentDeps
+from src.memory.manager import get_memory_manager
+from src.memory.models import MemoryStats, SessionMetadata
 from src.models import AgentResponse
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -66,6 +68,16 @@ class ChatRequest(BaseModel):
         pattern=r"^[a-zA-Z0-9_-]*$",
         description="Optional user ID for context",
     )
+    session_id: str | None = Field(
+        default=None,
+        max_length=256,
+        pattern=r"^[a-zA-Z0-9_:-]*$",
+        description="Session ID for conversation context",
+    )
+    memory_enabled: bool = Field(
+        default=True,
+        description="Enable memory for this request (default: true)",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -89,7 +101,29 @@ class InfoResponse(BaseModel):
     tools: list[str]
     debug: bool
     logfire_enabled: bool
+    memory_enabled: bool = False
+    memory_storage_type: str | None = None
+    memory_max_messages: int | None = None
     error: str | None = None
+
+
+class SessionListResponse(BaseModel):
+    """Response body for sessions list endpoint."""
+
+    sessions: list[SessionMetadata]
+
+
+class SessionDetailResponse(BaseModel):
+    """Response body for session detail endpoint."""
+
+    session: SessionMetadata
+
+
+class SessionClearResponse(BaseModel):
+    """Response body for session clear endpoint."""
+
+    status: str
+    session_id: str
 
 
 @app.get("/", response_class=FileResponse)
@@ -117,6 +151,9 @@ async def info() -> InfoResponse:
             tools=[],
             debug=settings.debug,
             logfire_enabled=settings.logfire_token is not None,
+            memory_enabled=settings.memory_enabled,
+            memory_storage_type=settings.memory_storage_type,
+            memory_max_messages=settings.memory_max_messages,
             error=sanitize_error(e, "info"),
         )
 
@@ -125,7 +162,11 @@ async def info() -> InfoResponse:
 async def chat(request: ChatRequest) -> ChatResponse:
     """Send a prompt to the agent and get a response."""
     try:
-        deps = AgentDeps(user_id=request.user_id)
+        deps = AgentDeps(
+            user_id=request.user_id,
+            session_id=request.session_id,
+            memory_enabled=request.memory_enabled,
+        )
         result: AgentResponse = await run_agent(request.prompt, deps)
         return ChatResponse(content=result.content, confidence=result.confidence)
     except Exception as e:
@@ -136,7 +177,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     """Send a prompt to the agent and get a streaming response."""
     try:
-        deps = AgentDeps(user_id=request.user_id)
+        deps = AgentDeps(
+            user_id=request.user_id,
+            session_id=request.session_id,
+            memory_enabled=request.memory_enabled,
+        )
 
         async def event_generator():
             """Generate Server-Sent Events for streaming."""
@@ -160,6 +205,65 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=sanitize_error(e, "chat stream"))
+
+
+@app.get("/sessions", response_model=SessionListResponse)
+async def list_sessions() -> SessionListResponse:
+    """List all conversation sessions."""
+    if not settings.memory_enabled:
+        return SessionListResponse(sessions=[])
+
+    try:
+        memory_manager = get_memory_manager()
+        sessions = await memory_manager.list_sessions()
+        return SessionListResponse(sessions=sessions)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=sanitize_error(e, "list sessions"))
+
+
+@app.get("/sessions/{session_id}", response_model=SessionDetailResponse)
+async def get_session(session_id: str) -> SessionDetailResponse:
+    """Get details for a specific session."""
+    if not settings.memory_enabled:
+        raise HTTPException(status_code=404, detail="Memory is disabled")
+
+    try:
+        memory_manager = get_memory_manager()
+        metadata = await memory_manager.get_session_metadata(session_id)
+
+        if metadata is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+        return SessionDetailResponse(session=metadata)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=sanitize_error(e, "get session"))
+
+
+@app.delete("/sessions/{session_id}", response_model=SessionClearResponse)
+async def clear_session(session_id: str) -> SessionClearResponse:
+    """Clear conversation history for a session."""
+    if not settings.memory_enabled:
+        raise HTTPException(status_code=404, detail="Memory is disabled")
+
+    try:
+        memory_manager = get_memory_manager()
+        await memory_manager.clear_session(session_id)
+        return SessionClearResponse(status="cleared", session_id=session_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=sanitize_error(e, "clear session"))
+
+
+@app.get("/memory/stats", response_model=MemoryStats)
+async def memory_stats() -> MemoryStats:
+    """Get memory system statistics."""
+    try:
+        memory_manager = get_memory_manager()
+        stats = await memory_manager.get_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=sanitize_error(e, "memory stats"))
 
 
 # Mount static files at the end after all routes are defined

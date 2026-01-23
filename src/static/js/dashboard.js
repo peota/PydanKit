@@ -37,6 +37,11 @@ const healthStatus = document.getElementById('health-status');
 const modelName = document.getElementById('model-name');
 const debugStatus = document.getElementById('debug-status');
 const logfireStatus = document.getElementById('logfire-status');
+const memoryStatus = document.getElementById('memory-status');
+const memoryDetails = document.getElementById('memory-details');
+const memoryStorage = document.getElementById('memory-storage');
+const memoryMaxMessages = document.getElementById('memory-max-messages');
+const sessionIdDisplay = document.getElementById('session-id');
 const toolsList = document.getElementById('tools-list');
 const chatMessages = document.getElementById('chat-messages');
 const chatForm = document.getElementById('chat-form');
@@ -47,6 +52,57 @@ const configErrorMessage = document.getElementById('config-error-message');
 
 // State
 let isFirstMessage = true;
+let currentSessionId = null;
+
+// Session Management
+function generateSessionId() {
+    // Generate a random GUID
+    return 'dashboard-' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+function getOrCreateSessionId() {
+    // Try to get from localStorage
+    let sessionId = localStorage.getItem('dashboard_session_id');
+
+    if (!sessionId) {
+        sessionId = generateSessionId();
+        localStorage.setItem('dashboard_session_id', sessionId);
+    }
+
+    return sessionId;
+}
+
+function resetSession() {
+    // Generate new session ID
+    currentSessionId = generateSessionId();
+    localStorage.setItem('dashboard_session_id', currentSessionId);
+
+    // Update display
+    sessionIdDisplay.textContent = currentSessionId;
+
+    // Clear chat
+    chatMessages.innerHTML = `
+        <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
+            <div class="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
+                <svg class="w-6 h-6 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+            </div>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">New session started</p>
+        </div>
+    `;
+    isFirstMessage = true;
+
+    chatInput.focus();
+}
+
+// Initialize session on load
+currentSessionId = getOrCreateSessionId();
+sessionIdDisplay.textContent = currentSessionId;
 
 // Initialize dashboard
 async function loadDashboard() {
@@ -102,6 +158,20 @@ function updateInfoPanel(info) {
     // Update logfire status
     logfireStatus.textContent = info.logfire_enabled ? 'Connected' : 'Disconnected';
     logfireStatus.className = `text-sm font-medium ${info.logfire_enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`;
+
+    // Update memory status
+    const memoryEnabled = info.memory_enabled || false;
+    memoryStatus.textContent = memoryEnabled ? 'Enabled' : 'Disabled';
+    memoryStatus.className = `text-sm font-medium ${memoryEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`;
+
+    // Show memory details if enabled
+    if (memoryEnabled) {
+        memoryDetails.classList.remove('hidden');
+        memoryStorage.textContent = (info.memory_storage_type || 'memory').toUpperCase();
+        memoryMaxMessages.textContent = info.memory_max_messages || '--';
+    } else {
+        memoryDetails.classList.add('hidden');
+    }
 
     // Show configuration error if present
     if (info.error) {
@@ -231,7 +301,10 @@ async function sendMessage(prompt) {
         const response = await fetch('/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt })
+            body: JSON.stringify({
+                prompt: prompt,
+                session_id: currentSessionId
+            })
         });
 
         if (!response.ok) {

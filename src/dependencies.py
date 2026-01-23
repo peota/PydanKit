@@ -24,3 +24,7 @@ class AgentDeps:
 
     user_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    # Memory session management
+    session_id: str | None = None
+    memory_enabled: bool = True  # Can disable per-request

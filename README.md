@@ -4,409 +4,217 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic%20AI-powered-green.svg)](https://ai.pydantic.dev/)
 
-A minimal, well-structured infrastructure template for building AI Agents with [Pydantic AI](https://ai.pydantic.dev/).
+A production-ready template for building AI agents with [Pydantic AI](https://ai.pydantic.dev/). Get started in minutes with conversation memory, structured outputs, and an optional REST API.
 
-## Features
+## ✨ Features
 
-- **Pydantic AI** - Type-safe agent framework with structured outputs
-- **OpenAI GPT-4o** - Default LLM (easily switchable)
-- **Logfire** - Built-in observability support
-- **Typer CLI** - Command-line interface with interactive mode
-- **FastAPI** - Optional REST API server with dashboard
-- **Docker** - Container-ready deployment
+- 🤖 **Type-safe agents** with Pydantic AI
+- 💬 **Built-in memory** - conversations remember context across sessions
+- 🎯 **Interactive setup wizard** - customize for your use case with `/setup-agent`
+- 🚀 **FastAPI dashboard** - web UI and REST API (optional)
+- 🔌 **Tool framework** - easy to add custom capabilities
+- 📊 **Observability** - Logfire integration included
+- 🐳 **Docker ready** - deploy anywhere
 
-## Quick Start
+## 🚀 Quick Start
 
-### Prerequisites
+### 1. Setup
 
-- Python 3.10+
-- pip 21.3+ (for editable installs with pyproject.toml)
-
-To upgrade pip if needed:
 ```bash
-python -m pip install --upgrade pip
-```
-
-### 1. Install Dependencies
-
-**Linux/macOS:**
-```bash
-make install-dev
-```
-
-**Windows (PowerShell):**
-```powershell
+# Clone and install
 pip install -e ".[dev]"
-```
 
-### 2. Configure Environment
-
-**Linux/macOS:**
-```bash
+# Add your OpenAI API key
 cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
+# Edit .env and add: OPENAI_API_KEY=sk-...
 ```
 
-**Windows (PowerShell):**
-```powershell
-Copy-Item .env.example .env
-# Edit .env and add your OPENAI_API_KEY
-```
+### 2. Try it out
 
-### 3. Run the Agent
-
-**Linux/macOS:**
 ```bash
-# Single prompt
-make run
+# Single question
+python -m src.main chat "What can you help me with?"
 
-# Or with custom prompt
-python -m src.main chat "What time is it?"
-
-# Interactive mode
-make interactive
-
-# REST API with dashboard (requires: pip install -e ".[api]")
-python -m src.main serve
-# Open http://localhost:8000 in your browser
-```
-
-**Windows (PowerShell):**
-```powershell
-# Single prompt
-python -m src.main chat "Hello, how can you help me?"
-
-# Interactive mode
+# Interactive mode (with memory!)
 python -m src.main interactive
 
-# REST API with dashboard (requires: pip install -e ".[api]")
+# Web dashboard
+pip install -e ".[api]"
 python -m src.main serve
-# Open http://localhost:8000 in your browser
+# Open http://localhost:8000
 ```
 
-## Project Structure
+That's it! The agent remembers your conversations automatically.
 
-```
-├── src/
-│   ├── __init__.py
-│   ├── main.py          # CLI entry point
-│   ├── agent.py         # Agent definition
-│   ├── api.py           # FastAPI server (optional)
-│   ├── tools.py         # Tool definitions
-│   ├── models.py        # Output models
-│   ├── dependencies.py  # Dependency injection
-│   ├── config.py        # Settings
-│   └── static/          # Dashboard assets
-│       ├── index.html
-│       ├── assets/
-│       └── js/
-├── examples/
-│   └── weather_agent/   # Example agent with API + dashboard
-├── Dockerfile
-├── docker-compose.yml
-├── pyproject.toml
-└── Makefile
+## 🎨 Customize Your Agent
+
+### Using the Setup Wizard (Recommended)
+
+If you're using [Claude Code](https://claude.ai/code):
+
+```bash
+/setup-agent
 ```
 
-## Customization Guide
+The wizard helps you customize with pre-built templates:
+- 🏥 Health Monitoring - monitor services/APIs
+- 📊 Data Processing - validate and transform data
+- 🔗 API Integration - connect multiple services
+- 📝 Report Generation - create insights from data
 
-### Adding a New Tool
+### Manual Customization
 
-Edit `src/tools.py`:
-
+**Add a tool** (`src/tools.py`):
 ```python
-from pydantic_ai import RunContext
-from src.dependencies import AgentDeps
-
-async def my_tool(ctx: RunContext[AgentDeps], param: str) -> str:
-    """Tool description for the LLM to understand when to use it."""
-    # Access dependencies via ctx.deps
-    return f"Processed: {param}"
+async def my_tool(ctx: RunContext[AgentDeps], query: str) -> str:
+    """Describe what this tool does."""
+    return f"Result for {query}"
 ```
 
-Register in `src/agent.py`:
-
+**Register it** (`src/agent.py`):
 ```python
-from src.tools import my_tool
 agent.tool(my_tool)
 ```
 
-### Adding Dependencies
-
-Edit `src/dependencies.py`:
-
+**Change output format** (`src/models.py`):
 ```python
-from dataclasses import dataclass
-
-@dataclass
-class AgentDeps:
-    user_id: str | None = None
-    db: Database = None  # Add your dependencies
-    api_client: APIClient = None
+class MyResponse(BaseModel):
+    answer: str
+    confidence: float
+    sources: list[str]
 ```
 
-### Custom Output Models
+See [CLAUDE.md](CLAUDE.md) for complete customization guide.
 
-Edit `src/models.py`:
+## 💬 Memory System
 
-```python
-from pydantic import BaseModel
-from typing import Literal
-
-class AnalysisResponse(BaseModel):
-    summary: str
-    sentiment: Literal["positive", "negative", "neutral"]
-    key_points: list[str]
-```
-
-Update agent in `src/agent.py`:
-
-```python
-agent = Agent(
-    settings.model_name,
-    deps_type=AgentDeps,
-    output_type=AnalysisResponse,  # Use your model
-)
-```
-
-### Dynamic System Prompt
-
-```python
-from pydantic_ai import RunContext
-
-@agent.instructions
-def dynamic_instructions(ctx: RunContext[AgentDeps]) -> str:
-    return f"""You are helping user {ctx.deps.user_id}.
-    Current context: {ctx.deps.metadata}
-    """
-```
-
-### Switching LLM Provider
-
-Update `.env`:
+Memory is enabled by default - your agent automatically remembers conversations.
 
 ```bash
-# For Anthropic Claude
-MODEL_NAME=anthropic:claude-3-5-sonnet-latest
+# Interactive mode creates a session automatically
+python -m src.main interactive
+> My name is Alice
+> What's my name?  # Agent remembers!
 
-# For local Ollama
-MODEL_NAME=ollama:llama3.2
+# Manage sessions
+python -m src.main sessions --list
+python -m src.main sessions --clear session-id
 ```
 
-## Commands
-
-### Linux/macOS (Makefile)
-
-| Command | Description |
-|---------|-------------|
-| `make install` | Install production dependencies |
-| `make install-dev` | Install with dev dependencies |
-| `make lint` | Run linter |
-| `make format` | Format code |
-| `make run` | Run with example prompt |
-| `make interactive` | Start interactive mode |
-| `make docker-build` | Build Docker image |
-| `make docker-run` | Run with Docker Compose |
-
-### Windows (PowerShell)
-
-| Command | Description |
-|---------|-------------|
-| `pip install -e .` | Install production dependencies |
-| `pip install -e ".[dev]"` | Install with dev dependencies |
-| `ruff check src` | Run linter |
-| `ruff format src` | Format code |
-| `python -m src.main chat "Hello"` | Run with example prompt |
-| `python -m src.main interactive` | Start interactive mode |
-| `docker build -t pydantic-ai-agent .` | Build Docker image |
-| `docker-compose up` | Run with Docker Compose |
-
-## Docker
-
-Build and run:
-
-**Build the image:**
+**Configure in `.env`:**
 ```bash
-docker build -t pydantic-ai-agent .
+MEMORY_ENABLED=true          # Default: true
+MEMORY_MAX_MESSAGES=100      # Keep last N messages
 ```
 
-**Run with .env file (recommended):**
-```bash
-# Single prompt
-docker run --rm --env-file .env pydantic-ai-agent chat "Hello"
-
-# Interactive mode
-docker run -it --rm --env-file .env pydantic-ai-agent interactive
-```
-
-**Run with explicit environment variable:**
-
-Linux/macOS:
-```bash
-docker run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY pydantic-ai-agent chat "Hello"
-```
-
-Windows (PowerShell):
-```powershell
-docker run --rm -e OPENAI_API_KEY=$env:OPENAI_API_KEY pydantic-ai-agent chat "Hello"
-```
-
-**Using docker-compose:**
-```bash
-docker-compose run --rm agent chat "Hello"
-```
-
-## REST API (Optional)
-
-The agent can be exposed as a REST API using FastAPI, including a web-based dashboard.
-
-**Install API dependencies:**
-```bash
-pip install -e ".[api]"
-```
-
-**Start the server:**
-```bash
-python -m src.main serve
-```
-
-### Dashboard
-
-The API server includes a dashboard at the root URL (`/`) that provides:
-
-- **Status Panel**: Health status indicator with color coding, model name display
-- **Configuration**: Debug mode and Logfire status
-- **Tools List**: Dynamically loaded list of registered tools
-- **Chat Interface**: Interactive chat to test the agent
-
-Open `http://localhost:8000/` in your browser after starting the server.
-
-**Options:**
-```bash
-python -m src.main serve --host 0.0.0.0 --port 8000 --reload
-```
-
-**Endpoints:**
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | Dashboard UI |
-| GET | `/health` | Health check |
-| GET | `/info` | Agent configuration and metadata |
-| POST | `/chat` | Send a prompt to the agent |
-| POST | `/chat/stream` | Send a prompt and receive streaming response (SSE) |
-| GET | `/docs` | OpenAPI documentation |
-
-**Example request:**
+**API usage:**
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello!", "user_id": "user-123"}'
+  -d '{"prompt": "Hello!", "user_id": "alice"}'
 ```
 
-### Streaming with Server-Sent Events (SSE)
+Sessions are automatically created per `user_id`. See [CLAUDE.md](CLAUDE.md) for advanced memory features.
 
-The `/chat/stream` endpoint provides real-time streaming responses using Server-Sent Events.
+## 🌐 REST API & Dashboard
 
-**curl example:**
 ```bash
-curl -N -X POST http://localhost:8000/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Tell me a story"}'
-```
-
-**JavaScript example:**
-```javascript
-async function streamChat(prompt) {
-  const response = await fetch('http://localhost:8000/chat/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt })
-  });
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    const text = decoder.decode(value);
-    const lines = text.split('\n');
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6);
-        if (data === '[DONE]') {
-          console.log('Stream complete');
-        } else {
-          console.log('Received:', data);
-        }
-      }
-    }
-  }
-}
-```
-
-**Run with Docker:**
-```bash
-docker run --rm --env-file .env -p 8000:8000 pydantic-ai-agent serve --host 0.0.0.0
-```
-
-## Observability with Logfire
-
-1. Get a token from [Logfire](https://logfire.pydantic.dev/)
-2. Add to `.env`:
-   ```
-   LOGFIRE_TOKEN=your-token-here
-   ```
-3. View traces in the Logfire dashboard
-
-## Troubleshooting
-
-### "OPENAI_API_KEY not set" error
-Ensure your `.env` file exists and contains a valid API key:
-```bash
-echo "OPENAI_API_KEY=sk-..." > .env
-```
-
-### "FastAPI is not installed" error
-Install API dependencies:
-```bash
+# Install API extras
 pip install -e ".[api]"
+
+# Start server
+python -m src.main serve
+
+# Open dashboard
+open http://localhost:8000
 ```
 
-### "pip install -e" fails on older pip
-Upgrade pip to 21.3+:
+**Key endpoints:**
+- `POST /chat` - Send a message
+- `POST /chat/stream` - Streaming responses (SSE)
+- `GET /sessions` - List conversation sessions
+- `GET /docs` - Full API documentation
+
+## 📁 Project Structure
+
+```
+src/
+├── agent.py         # Agent configuration
+├── tools.py         # Your custom tools
+├── models.py        # Output schemas
+├── config.py        # Settings
+├── memory/          # Memory system
+└── api.py           # REST API (optional)
+
+.claude/
+└── skills/
+    └── setup-agent/ # Interactive wizard
+```
+
+## 🔧 Common Tasks
+
+**Switch LLM provider** (`.env`):
 ```bash
-python -m pip install --upgrade pip
+# Anthropic Claude
+MODEL_NAME=anthropic:claude-3-5-sonnet-latest
+
+# Local Ollama
+MODEL_NAME=ollama:llama3.2
 ```
 
-### Agent returns empty or unexpected responses
-1. Check your `MODEL_NAME` in `.env` is valid
-2. Ensure your API key has access to the specified model
-3. Try enabling debug mode: `DEBUG=true` in `.env`
+**Add dependencies** (`src/dependencies.py`):
+```python
+@dataclass
+class AgentDeps:
+    user_id: str | None = None
+    db: Database = None  # Add your services here
+```
 
-### Streaming endpoint hangs or disconnects
-1. Ensure your client supports SSE (Server-Sent Events)
-2. Check for proxy/firewall issues that may buffer or timeout streams
-3. Try the non-streaming `/chat` endpoint to verify the agent works
-
-### Docker container can't access API key
-Use `--env-file` or `-e` flags:
+**Enable observability** (`.env`):
 ```bash
-docker run --rm --env-file .env pydantic-ai-agent chat "Hello"
+LOGFIRE_TOKEN=your-token-from-logfire.dev
 ```
 
-## Acknowledgments
+## 🐳 Docker
 
-Built with these excellent open-source projects:
+```bash
+# Build
+docker build -t my-agent .
 
-- [Pydantic AI](https://ai.pydantic.dev/) - Type-safe AI agent framework
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework for APIs
-- [Typer](https://typer.tiangolo.com/) - CLI builder
-- [Logfire](https://logfire.pydantic.dev/) - Observability platform
+# Run
+docker run --env-file .env my-agent chat "Hello"
 
-## License
+# API server
+docker run --env-file .env -p 8000:8000 my-agent serve --host 0.0.0.0
+```
 
-MIT
+## 📚 Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** - Complete development guide, architecture, streaming details
+- **[Examples](examples/)** - Sample agents with different configurations
+- **[Pydantic AI Docs](https://ai.pydantic.dev/)** - Framework documentation
+
+## 🤝 Contributing
+
+This is a template - customize it for your needs! Some ideas:
+
+- Add more pre-built agent templates to the wizard
+- Implement file/Redis storage backends for memory
+- Create example integrations (Slack, Discord, etc.)
+- Add more sophisticated tools
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+## 🙏 Acknowledgments
+
+Built with:
+- [Pydantic AI](https://ai.pydantic.dev/) - Agent framework
+- [FastAPI](https://fastapi.tiangolo.com/) - Web API
+- [Typer](https://typer.tiangolo.com/) - CLI
+- [Logfire](https://logfire.pydantic.dev/) - Observability
+
+---
+
+**Need help?** Check [CLAUDE.md](CLAUDE.md) for detailed guides or open an issue.

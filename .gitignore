@@ -56,7 +56,3 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
-
-# Claude Code
-.claude/
-# Note: CLAUDE.md is intentionally kept in the repo for Claude Code users

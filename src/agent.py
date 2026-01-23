@@ -6,11 +6,13 @@ from functools import lru_cache
 
 import logfire
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage
 
 from src.config import Settings, get_settings
 from src.dependencies import AgentDeps
+from src.memory.manager import get_memory_manager
 from src.models import AgentResponse
-from src.tools import example_tool, get_current_time
+from src.tools import example_tool, get_current_time, retrieve_facts, save_fact
 
 logger = logging.getLogger(__name__)
 
@@ -72,16 +74,21 @@ def get_agent() -> Agent[AgentDeps, AgentResponse]:
     # Register tools
     agent.tool(example_tool)
     agent.tool(get_current_time)
+    agent.tool(save_fact)
+    agent.tool(retrieve_facts)
 
     return agent
 
 
-async def run_agent(prompt: str, deps: AgentDeps | None = None) -> AgentResponse:
+async def run_agent(
+    prompt: str, deps: AgentDeps | None = None, message_history: list[ModelMessage] | None = None
+) -> AgentResponse:
     """Run the agent with given prompt and dependencies.
 
     Args:
         prompt: The user's input prompt
         deps: Optional dependencies (creates default if not provided)
+        message_history: Optional conversation history (loaded from memory if not provided)
 
     Returns:
         The agent's structured response
@@ -89,13 +96,32 @@ async def run_agent(prompt: str, deps: AgentDeps | None = None) -> AgentResponse
     agent = get_agent()
     deps = deps or AgentDeps()
 
+    # Load message history from memory if not provided
+    if message_history is None and deps.memory_enabled:
+        memory_manager = get_memory_manager()
+        message_history = await memory_manager.get_history(
+            session_id=deps.session_id, user_id=deps.user_id
+        )
+        logger.debug("Loaded %d messages from memory for session", len(message_history))
+
     logger.debug("=" * 50)
     logger.debug("AGENT REQUEST")
     logger.debug("=" * 50)
     logger.debug("Prompt: %s", prompt)
     logger.debug("User ID: %s", deps.user_id)
+    logger.debug("Session ID: %s", deps.session_id)
+    logger.debug("History size: %d messages", len(message_history) if message_history else 0)
 
-    result = await agent.run(prompt, deps=deps)
+    result = await agent.run(prompt, deps=deps, message_history=message_history)
+
+    # Save conversation to memory
+    if deps.memory_enabled:
+        memory_manager = get_memory_manager()
+        new_messages = result.new_messages()
+        await memory_manager.save_turn(
+            session_id=deps.session_id, new_messages=new_messages, user_id=deps.user_id
+        )
+        logger.debug("Saved %d new messages to memory", len(new_messages))
 
     logger.debug("-" * 50)
     logger.debug("AGENT RESPONSE")
@@ -117,12 +143,15 @@ async def run_agent_text(prompt: str, deps: AgentDeps | None = None) -> str:
     return response.content
 
 
-async def run_agent_stream(prompt: str, deps: AgentDeps | None = None):
+async def run_agent_stream(
+    prompt: str, deps: AgentDeps | None = None, message_history: list[ModelMessage] | None = None
+):
     """Run the agent with streaming response.
 
     Args:
         prompt: The user's input prompt
         deps: Optional dependencies (creates default if not provided)
+        message_history: Optional conversation history (loaded from memory if not provided)
 
     Yields:
         Streamed text chunks from the agent
@@ -130,14 +159,24 @@ async def run_agent_stream(prompt: str, deps: AgentDeps | None = None):
     agent = get_agent()
     deps = deps or AgentDeps()
 
+    # Load message history from memory if not provided
+    if message_history is None and deps.memory_enabled:
+        memory_manager = get_memory_manager()
+        message_history = await memory_manager.get_history(
+            session_id=deps.session_id, user_id=deps.user_id
+        )
+        logger.debug("Loaded %d messages from memory for session", len(message_history))
+
     logger.debug("=" * 50)
     logger.debug("AGENT STREAM REQUEST")
     logger.debug("=" * 50)
     logger.debug("Prompt: %s", prompt)
     logger.debug("User ID: %s", deps.user_id)
+    logger.debug("Session ID: %s", deps.session_id)
+    logger.debug("History size: %d messages", len(message_history) if message_history else 0)
 
     last_content = ""
-    async with agent.run_stream(prompt, deps=deps) as result:
+    async with agent.run_stream(prompt, deps=deps, message_history=message_history) as result:
         # For structured outputs, use stream_output() to get partial validated objects
         async for output in result.stream_output(debounce_by=0.05):
             # Extract the content field and yield only new text (delta)
@@ -148,6 +187,15 @@ async def run_agent_stream(prompt: str, deps: AgentDeps | None = None):
                 if delta:
                     yield delta
                 last_content = current_content
+
+    # Save conversation to memory after stream completes
+    if deps.memory_enabled:
+        memory_manager = get_memory_manager()
+        new_messages = result.new_messages()
+        await memory_manager.save_turn(
+            session_id=deps.session_id, new_messages=new_messages, user_id=deps.user_id
+        )
+        logger.debug("Saved %d new messages to memory", len(new_messages))
 
     logger.debug("-" * 50)
     logger.debug("AGENT STREAM COMPLETE")
@@ -169,4 +217,7 @@ def get_agent_info() -> dict:
         "tools": tool_names,
         "debug": settings.debug,
         "logfire_enabled": settings.logfire_token is not None,
+        "memory_enabled": settings.memory_enabled,
+        "memory_storage_type": settings.memory_storage_type,
+        "memory_max_messages": settings.memory_max_messages,
     }

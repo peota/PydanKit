@@ -1,5 +1,8 @@
 """Settings management using pydantic-settings."""
 
+from pathlib import Path
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +20,16 @@ class Settings(BaseSettings):
 
     # Debug
     debug: bool = False
+
+    # Memory Configuration
+    memory_enabled: bool = True  # Enabled by default for better UX
+    memory_storage_type: Literal["memory", "file", "redis"] = "memory"
+    memory_file_path: Path = Path(".memory")
+    memory_redis_url: str | None = None
+    memory_max_messages: int = 100
+    memory_max_tokens: int | None = None
+    memory_ttl_seconds: int | None = None
+    memory_auto_session: bool = True  # Auto-generate session_id from user_id
 
 
 def get_settings() -> Settings:

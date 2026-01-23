@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(ruff check:*)",
+      "Bash(pytest:*)",
+      "Bash(python -m src.main:*)",
+      "Bash(docker build:*)",
+      "Bash(findstr:*)",
+      "Bash(docker run:*)",
+      "Bash(docker images:*)",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(python -c:*)",
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(claude --version:*)",
+      "Bash(claude help:*)",
+      "Bash(claude)"
+    ]
+  }
+}
