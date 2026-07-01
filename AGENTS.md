@@ -7,6 +7,12 @@ architecture and file layout, see [CLAUDE.md](CLAUDE.md); don't duplicate it.
 PydanKit is a **minimal Pydantic AI skeleton**: plain-text output by default,
 provider-agnostic, with in-memory conversation history and an optional API.
 
+> **Official docs — the source of truth for APIs and best practices:**
+> https://pydantic.dev/docs/ai/overview/
+> Consult them before using a Pydantic AI API you're unsure about. Pydantic AI's
+> APIs change across versions (this repo has already been bitten — see
+> Anti-patterns), so verify current usage against the docs rather than assuming.
+
 ## The golden rule
 
 **Make the smallest change that satisfies the request.** Do not add structured
@@ -51,6 +57,9 @@ smaller change and say what you deliberately left out.
    (`tests/eval_example.py`), or state why an eval doesn't apply.
 5. **Changed a seam or a rule here?** Update *this file* — it is the source of
    truth. Don't restate volatile facts (model names, signatures) that live in code.
+6. **Used a Pydantic AI API you're not certain about?** Verify it against the
+   official docs (https://pydantic.dev/docs/ai/overview/) before relying on it —
+   don't code from memory of an older version.
 
 ## Commands
 
