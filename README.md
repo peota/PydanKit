@@ -4,15 +4,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic%20AI-powered-green.svg)](https://ai.pydantic.dev/)
 
-A production-ready template for building AI agents with [Pydantic AI](https://ai.pydantic.dev/). Get started in minutes with conversation memory, structured outputs, and an optional REST API.
+A minimal, well-structured skeleton for building AI agents with [Pydantic AI](https://ai.pydantic.dev/). Returns plain text by default (structured output is an opt-in example), with conversation memory and an optional REST API. Bring your own opinions.
 
 ## ✨ Features
 
-- 🤖 **Type-safe agents** with Pydantic AI
-- 💬 **Built-in memory** - conversations remember context across sessions
+- 🤖 **Type-safe agents** with Pydantic AI (plain-text output by default; structured output opt-in)
+- 💬 **Conversation memory** - context within a run (in-memory; ephemeral, lost on restart)
 - 🎯 **Interactive setup wizard** - customize for your use case with `/setup-agent`
 - 🚀 **FastAPI dashboard** - web UI and REST API (optional)
 - 🔌 **Tool framework** - easy to add custom capabilities
+- 🧪 **Tests + evals** - offline `TestModel` tests and a Pydantic Evals example (`make test`)
 - 📊 **Observability** - Logfire integration included
 - 🐳 **Docker ready** - deploy anywhere
 
@@ -191,7 +192,7 @@ docker run --env-file .env -p 8000:8000 my-agent serve --host 0.0.0.0
 ## 📚 Documentation
 
 - **[CLAUDE.md](CLAUDE.md)** - Complete development guide, architecture, streaming details
-- **[Examples](examples/)** - Sample agents with different configurations
+- **[tests/eval_example.py](tests/eval_example.py)** - Runnable Pydantic Evals pattern to copy
 - **[Pydantic AI Docs](https://ai.pydantic.dev/)** - Framework documentation
 
 ## 🤝 Contributing

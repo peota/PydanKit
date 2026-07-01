@@ -7,14 +7,12 @@ Run with: python -m src.main serve
 from pathlib import Path
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import Depends, FastAPI, Header, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
 except ImportError:
-    raise ImportError(
-        "FastAPI is not installed. Install it with: pip install -e '.[api]'"
-    )
+    raise ImportError("FastAPI is not installed. Install it with: pip install -e '.[api]'")
 
 import logging
 
@@ -25,7 +23,6 @@ from src.config import get_settings
 from src.dependencies import AgentDeps
 from src.memory.manager import get_memory_manager
 from src.memory.models import MemoryStats, SessionMetadata
-from src.models import AgentResponse
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -40,20 +37,32 @@ def sanitize_error(e: Exception, context: str = "request") -> str:
         return f"{type(e).__name__}: {e}"
     return "An internal error occurred. Please try again later."
 
+
 app = FastAPI(
     title="Pydantic AI Agent API",
     description="REST API for the Pydantic AI Agent",
     version="0.1.0",
 )
 
-# Configure CORS
+# Configure CORS from settings (default is a localhost allowlist, not "*").
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=False,  # Must be False when allow_origins=["*"]
+    allow_origins=settings.cors_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Optional API-key gate.
+
+    A no-op unless ``API_KEY`` is set in the environment. When set, protected
+    endpoints require a matching ``X-API-Key`` header. This is a minimal seam,
+    not a full auth system - swap in OAuth/JWT for real deployments.
+    """
+    if settings.api_key and x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 class ChatRequest(BaseModel):
@@ -84,7 +93,6 @@ class ChatResponse(BaseModel):
     """Response body for chat endpoint."""
 
     content: str = Field(..., description="The agent's response")
-    confidence: float | None = Field(default=None, description="Confidence score (0-1)")
 
 
 class HealthResponse(BaseModel):
@@ -158,7 +166,7 @@ async def info() -> InfoResponse:
         )
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_api_key)])
 async def chat(request: ChatRequest) -> ChatResponse:
     """Send a prompt to the agent and get a response."""
     try:
@@ -167,13 +175,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
             session_id=request.session_id,
             memory_enabled=request.memory_enabled,
         )
-        result: AgentResponse = await run_agent(request.prompt, deps)
-        return ChatResponse(content=result.content, confidence=result.confidence)
+        content = await run_agent(request.prompt, deps)
+        return ChatResponse(content=content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=sanitize_error(e, "chat"))
 
 
-@app.post("/chat/stream")
+@app.post("/chat/stream", dependencies=[Depends(require_api_key)])
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     """Send a prompt to the agent and get a streaming response."""
     try:
@@ -201,13 +209,17 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-            }
+            },
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=sanitize_error(e, "chat stream"))
 
 
-@app.get("/sessions", response_model=SessionListResponse)
+@app.get(
+    "/sessions",
+    response_model=SessionListResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def list_sessions() -> SessionListResponse:
     """List all conversation sessions."""
     if not settings.memory_enabled:
@@ -221,7 +233,11 @@ async def list_sessions() -> SessionListResponse:
         raise HTTPException(status_code=500, detail=sanitize_error(e, "list sessions"))
 
 
-@app.get("/sessions/{session_id}", response_model=SessionDetailResponse)
+@app.get(
+    "/sessions/{session_id}",
+    response_model=SessionDetailResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def get_session(session_id: str) -> SessionDetailResponse:
     """Get details for a specific session."""
     if not settings.memory_enabled:
@@ -241,7 +257,11 @@ async def get_session(session_id: str) -> SessionDetailResponse:
         raise HTTPException(status_code=500, detail=sanitize_error(e, "get session"))
 
 
-@app.delete("/sessions/{session_id}", response_model=SessionClearResponse)
+@app.delete(
+    "/sessions/{session_id}",
+    response_model=SessionClearResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def clear_session(session_id: str) -> SessionClearResponse:
     """Clear conversation history for a session."""
     if not settings.memory_enabled:
@@ -255,7 +275,11 @@ async def clear_session(session_id: str) -> SessionClearResponse:
         raise HTTPException(status_code=500, detail=sanitize_error(e, "clear session"))
 
 
-@app.get("/memory/stats", response_model=MemoryStats)
+@app.get(
+    "/memory/stats",
+    response_model=MemoryStats,
+    dependencies=[Depends(require_api_key)],
+)
 async def memory_stats() -> MemoryStats:
     """Get memory system statistics."""
     try:

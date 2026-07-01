@@ -31,23 +31,25 @@ app = typer.Typer(
 def chat(
     prompt: str = typer.Argument(..., help="The prompt to send to the agent"),
     user_id: str | None = typer.Option(None, "--user", "-u", help="Optional user ID"),
-    session: str | None = typer.Option(None, "--session", "-s", help="Session ID for conversation context"),
+    session: str | None = typer.Option(
+        None, "--session", "-s", help="Session ID for conversation context"
+    ),
     no_memory: bool = typer.Option(False, "--no-memory", help="Disable memory for this request"),
 ) -> None:
     """Run the agent with a single prompt."""
     deps = AgentDeps(user_id=user_id, session_id=session, memory_enabled=not no_memory)
     result = asyncio.run(run_agent(prompt, deps))
-    typer.echo(f"\n{result.content}")
-    if result.confidence is not None:
-        typer.echo(f"\n(Confidence: {result.confidence:.0%})")
+    typer.echo(f"\n{result}")
 
 
 @app.command()
 def interactive(
     user_id: str | None = typer.Option(None, "--user", "-u", help="Optional user ID"),
-    session: str | None = typer.Option(None, "--session", "-s", help="Session ID (auto-generated if not provided)"),
+    session: str | None = typer.Option(
+        None, "--session", "-s", help="Session ID (auto-generated if not provided)"
+    ),
 ) -> None:
-    """Start an interactive chat session with persistent memory."""
+    """Start an interactive chat session with in-session memory (lost on exit)."""
     # Auto-generate session_id if not provided
     if session is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -71,7 +73,7 @@ def interactive(
 
         try:
             result = asyncio.run(run_agent(prompt, deps))
-            typer.echo(f"\nAgent: {result.content}\n")
+            typer.echo(f"\nAgent: {result}\n")
         except Exception as e:
             typer.echo(f"\nError: {e}\n", err=True)
 
@@ -120,7 +122,7 @@ def sessions(
 
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host to bind to"),
+    host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host to bind to"),
     port: int = typer.Option(8000, "--port", "-p", help="Port to bind to"),
     reload: bool = typer.Option(False, "--reload", "-r", help="Enable auto-reload for development"),
 ) -> None:

@@ -7,14 +7,18 @@ from functools import lru_cache
 import logfire
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
+from pydantic_ai.usage import UsageLimits
 
 from src.config import Settings, get_settings
 from src.dependencies import AgentDeps
 from src.memory.manager import get_memory_manager
-from src.models import AgentResponse
-from src.tools import example_tool, get_current_time, retrieve_facts, save_fact
+from src.tools import example_tool, get_current_time
 
 logger = logging.getLogger(__name__)
+
+# Tools registered on the agent. Keeping the list here lets us report tool names
+# (see get_agent_info) without reaching into Pydantic AI internals.
+TOOLS = [example_tool, get_current_time]
 
 
 def _configure_logging(settings: Settings) -> None:
@@ -48,9 +52,18 @@ def _configure_logfire(settings: Settings) -> None:
     logfire.instrument_pydantic_ai()
 
 
+def _usage_limits(settings: Settings) -> UsageLimits:
+    """Bound a single run so a buggy tool can't loop forever (and rack up cost)."""
+    return UsageLimits(request_limit=settings.agent_request_limit)
+
+
 @lru_cache
-def get_agent() -> Agent[AgentDeps, AgentResponse]:
-    """Get or create the agent instance (lazy initialization)."""
+def get_agent() -> Agent[AgentDeps, str]:
+    """Get or create the agent instance (lazy initialization).
+
+    Returns plain text by default. To get validated structured output, set
+    ``output_type=AgentResponse`` (see src/models.py) here.
+    """
     settings = get_settings()
     _configure_logging(settings)
     _configure_environment(settings)
@@ -59,30 +72,27 @@ def get_agent() -> Agent[AgentDeps, AgentResponse]:
     agent = Agent(
         settings.model_name,
         deps_type=AgentDeps,
-        output_type=AgentResponse,
+        output_type=str,
         instructions=(
             "You are a helpful assistant. Customize this prompt for your specific use case.\n\n"
             "When responding:\n"
             "- Be concise and helpful\n"
-            "- Use tools when appropriate\n"
-            "- Provide a confidence score when you can estimate your certainty\n\n"
+            "- Use tools when appropriate\n\n"
             "You can extend these instructions or make them dynamic using "
-            "@agent.instructions decorator."
+            "the @agent.instructions decorator."
         ),
     )
 
     # Register tools
-    agent.tool(example_tool)
-    agent.tool(get_current_time)
-    agent.tool(save_fact)
-    agent.tool(retrieve_facts)
+    for tool in TOOLS:
+        agent.tool(tool)
 
     return agent
 
 
 async def run_agent(
     prompt: str, deps: AgentDeps | None = None, message_history: list[ModelMessage] | None = None
-) -> AgentResponse:
+) -> str:
     """Run the agent with given prompt and dependencies.
 
     Args:
@@ -91,9 +101,10 @@ async def run_agent(
         message_history: Optional conversation history (loaded from memory if not provided)
 
     Returns:
-        The agent's structured response
+        The agent's text response
     """
     agent = get_agent()
+    settings = get_settings()
     deps = deps or AgentDeps()
 
     # Load message history from memory if not provided
@@ -112,7 +123,12 @@ async def run_agent(
     logger.debug("Session ID: %s", deps.session_id)
     logger.debug("History size: %d messages", len(message_history) if message_history else 0)
 
-    result = await agent.run(prompt, deps=deps, message_history=message_history)
+    result = await agent.run(
+        prompt,
+        deps=deps,
+        message_history=message_history,
+        usage_limits=_usage_limits(settings),
+    )
 
     # Save conversation to memory
     if deps.memory_enabled:
@@ -126,27 +142,17 @@ async def run_agent(
     logger.debug("-" * 50)
     logger.debug("AGENT RESPONSE")
     logger.debug("-" * 50)
-    logger.debug("Content: %s", result.output.content)
-    logger.debug("Confidence: %s", result.output.confidence)
+    logger.debug("Content: %s", result.output)
     logger.debug("Usage: %s", result.usage())
     logger.debug("=" * 50)
 
     return result.output
 
 
-async def run_agent_text(prompt: str, deps: AgentDeps | None = None) -> str:
-    """Run the agent and return just the text content.
-
-    Convenience function for simple text-only responses.
-    """
-    response = await run_agent(prompt, deps)
-    return response.content
-
-
 async def run_agent_stream(
     prompt: str, deps: AgentDeps | None = None, message_history: list[ModelMessage] | None = None
 ):
-    """Run the agent with streaming response.
+    """Run the agent with a streaming text response.
 
     Args:
         prompt: The user's input prompt
@@ -154,9 +160,10 @@ async def run_agent_stream(
         message_history: Optional conversation history (loaded from memory if not provided)
 
     Yields:
-        Streamed text chunks from the agent
+        New text chunks (deltas) from the agent as they arrive
     """
     agent = get_agent()
+    settings = get_settings()
     deps = deps or AgentDeps()
 
     # Load message history from memory if not provided
@@ -171,22 +178,17 @@ async def run_agent_stream(
     logger.debug("AGENT STREAM REQUEST")
     logger.debug("=" * 50)
     logger.debug("Prompt: %s", prompt)
-    logger.debug("User ID: %s", deps.user_id)
     logger.debug("Session ID: %s", deps.session_id)
-    logger.debug("History size: %d messages", len(message_history) if message_history else 0)
 
-    last_content = ""
-    async with agent.run_stream(prompt, deps=deps, message_history=message_history) as result:
-        # For structured outputs, use stream_output() to get partial validated objects
-        async for output in result.stream_output(debounce_by=0.05):
-            # Extract the content field and yield only new text (delta)
-            current_content = output.content
-            if current_content != last_content:
-                # Yield only the new portion
-                delta = current_content[len(last_content):]
-                if delta:
-                    yield delta
-                last_content = current_content
+    async with agent.run_stream(
+        prompt,
+        deps=deps,
+        message_history=message_history,
+        usage_limits=_usage_limits(settings),
+    ) as result:
+        # Plain text output -> stream_text(delta=True) yields only the new text.
+        async for chunk in result.stream_text(delta=True):
+            yield chunk
 
     # Save conversation to memory after stream completes
     if deps.memory_enabled:
@@ -197,24 +199,17 @@ async def run_agent_stream(
         )
         logger.debug("Saved %d new messages to memory", len(new_messages))
 
-    logger.debug("-" * 50)
-    logger.debug("AGENT STREAM COMPLETE")
-    logger.debug("-" * 50)
-    logger.debug("Usage: %s", result.usage())
-    logger.debug("=" * 50)
+    logger.debug("AGENT STREAM COMPLETE - Usage: %s", result.usage())
 
 
 def get_agent_info() -> dict:
     """Get agent metadata for dashboard display."""
-    agent = get_agent()
+    get_agent()  # ensure configuration has run
     settings = get_settings()
-
-    # Get tool names dynamically from agent's registered tools
-    tool_names = list(agent._function_toolset.tools.keys())
 
     return {
         "model": settings.model_name,
-        "tools": tool_names,
+        "tools": [tool.__name__ for tool in TOOLS],
         "debug": settings.debug,
         "logfire_enabled": settings.logfire_token is not None,
         "memory_enabled": settings.memory_enabled,

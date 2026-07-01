@@ -88,52 +88,12 @@ class MemoryManager:
             logger.debug("No session_id or user_id provided, skipping save")
             return
 
-        # Filter messages to only keep user and assistant messages (without tool calls)
-        # Tool calls and tool responses can't be replayed in future turns without their context
-        from pydantic_ai.messages import ModelRequest, ModelResponse
-
-        # Debug: log message types
-        message_types = [type(msg).__name__ for msg in new_messages]
-        logger.debug(f"Message types in new_messages: {message_types}")
-
-        filtered_messages = []
-        for msg in new_messages:
-            try:
-                # ModelRequest represents user messages
-                if isinstance(msg, ModelRequest):
-                    # Check if it has tool returns (skip those)
-                    if msg.parts and any(hasattr(part, 'tool_call_id') for part in msg.parts):
-                        logger.debug(f"Skipping ModelRequest with tool returns")
-                        continue
-                    filtered_messages.append(msg)
-
-                # ModelResponse represents assistant messages
-                elif isinstance(msg, ModelResponse):
-                    # Check if it has tool calls (skip those)
-                    if msg.parts and any(hasattr(part, 'tool_name') and hasattr(part, 'args') for part in msg.parts):
-                        logger.debug(f"Skipping ModelResponse with tool calls")
-                        continue
-                    filtered_messages.append(msg)
-
-                else:
-                    logger.debug(f"Skipping unknown message type: {type(msg)}")
-            except Exception as e:
-                logger.error(f"Error filtering message: {e}, type={type(msg)}")
-                # On error, skip the message to be safe
-                continue
-
-        if len(filtered_messages) != len(new_messages):
-            logger.debug(
-                f"Filtered {len(new_messages)} messages down to {len(filtered_messages)} "
-                f"(removed tool messages)"
-            )
-
-        if not filtered_messages:
-            logger.debug("No user/assistant messages to save after filtering")
-            return
-
-        # Append filtered messages
-        await self.storage.append_messages(session_id, filtered_messages)
+        # Persist the full turn exactly as Pydantic AI produced it. The ModelMessage
+        # format is designed to be replayed via `message_history` on the next run,
+        # tool calls and returns included. Do NOT strip tool messages: doing so
+        # corrupts multi-turn reasoning and, with a structured output_type, can drop
+        # the assistant's answer entirely (the final output is itself a tool call).
+        await self.storage.append_messages(session_id, new_messages)
 
         # Apply context window limit if needed
         if self.settings.memory_max_messages:
@@ -143,10 +103,13 @@ class MemoryManager:
                 trimmed = current_messages[-self.settings.memory_max_messages :]
                 await self.storage.save_messages(session_id, trimmed)
                 logger.info(
-                    f"Trimmed session {session_id} from {len(current_messages)} to {len(trimmed)} messages"
+                    "Trimmed session %s from %d to %d messages",
+                    session_id,
+                    len(current_messages),
+                    len(trimmed),
                 )
 
-        logger.info(f"Saved {len(filtered_messages)} messages to session {session_id}")
+        logger.info(f"Saved {len(new_messages)} messages to session {session_id}")
 
     async def clear_session(self, session_id: str) -> None:
         """Delete conversation history for a session.
@@ -212,7 +175,6 @@ class MemoryManager:
             total_sessions=total_sessions,
             total_messages=total_messages,
             max_messages=self.settings.memory_max_messages,
-            max_tokens=self.settings.memory_max_tokens,
         )
 
 
@@ -223,13 +185,6 @@ def get_memory_manager() -> MemoryManager:
     Returns:
         Initialized memory manager
     """
-    settings = get_settings()
-
-    # Create storage backend based on configuration
-    if settings.memory_storage_type == "memory":
-        storage = InMemoryStorage()
-    else:
-        # Future: Add FileStorage and RedisStorage
-        raise ValueError(f"Unsupported storage type: {settings.memory_storage_type}")
-
-    return MemoryManager(storage)
+    # Only an in-memory backend ships today. To add file/redis persistence,
+    # implement the MemoryStorage interface and select it here.
+    return MemoryManager(InMemoryStorage())

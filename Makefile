@@ -1,4 +1,4 @@
-.PHONY: install install-dev lint format run interactive clean docker-build docker-run
+.PHONY: install install-dev lint format test run interactive clean docker-build docker-run
 
 # Install production dependencies
 install:
@@ -16,6 +16,10 @@ lint:
 format:
 	ruff format src
 	ruff check --fix src
+
+# Run tests (no API key needed; uses Pydantic AI's TestModel)
+test:
+	pytest
 
 # Run agent with a prompt
 run:

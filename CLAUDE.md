@@ -14,6 +14,10 @@ ruff check src
 # Format
 ruff format src
 
+# Test (offline; uses Pydantic AI TestModel, no API key needed)
+pytest
+# or: make test
+
 # Run agent
 python -m src.main chat "Your prompt here"
 python -m src.main interactive
@@ -31,13 +35,15 @@ docker run --rm --env-file .env -p 8000:8000 pydantic-ai-agent serve --host 0.0.
 
 ## Architecture
 
-This is a Pydantic AI agent template with dependency injection and structured outputs.
+This is a minimal Pydantic AI agent skeleton with dependency injection. The agent
+returns **plain text by default**; structured output is an opt-in example.
 
 **Data flow:** `main.py` (CLI) or `api.py` (REST) → `agent.py` (orchestration) → `tools.py` (actions)
 
 **Key patterns:**
 - `AgentDeps` (dependencies.py): Dataclass injected into all tool calls via `RunContext[AgentDeps]`. Add DB connections, API clients, or user context here.
-- `AgentResponse` (models.py): Pydantic model for structured LLM output. The agent is constrained to return this shape.
+- Output type (agent.py): `output_type=str` by default. `AgentResponse` (models.py) is a commented example showing structured output (enum + list); set `output_type=AgentResponse` to opt in.
+- Usage limits (agent.py): every run passes `UsageLimits(request_limit=...)` so a misbehaving tool can't loop forever. Configure via `AGENT_REQUEST_LIMIT`.
 - Tools (tools.py): Async functions registered with `agent.tool()`. First param is always `ctx: RunContext[AgentDeps]`.
 - Settings (config.py): Environment-based config via pydantic-settings, loaded from `.env`.
 - Lazy initialization (agent.py): Agent created via `get_agent()` on first use, not at import time. This allows CLI `--help` to work without API keys.
@@ -47,9 +53,18 @@ This is a Pydantic AI agent template with dependency injection and structured ou
 
 **Streaming:**
 - `/chat/stream` endpoint uses Server-Sent Events (SSE) for real-time streaming
-- `run_agent_stream()` in agent.py uses `result.stream_output()` (not `stream_text()`) because the agent has a structured `output_type`
-- The function calculates deltas to send only new text chunks to the client
+- `run_agent_stream()` in agent.py uses `result.stream_text(delta=True)` and yields each new text chunk directly (the default output is plain text)
 - Frontend uses `ReadableStream` API to consume SSE events in real-time
+- Note: if you switch `output_type` to a structured model, `stream_text()` no longer applies — use `result.stream_output()` and derive your own deltas
+
+**Testing:**
+- `pytest` (in the `dev` extra); run with `make test`
+- Tests use Pydantic AI's `TestModel` / `capture_run_messages`, so they run offline with no API key
+- `tests/eval_example.py` is a runnable Pydantic Evals pattern (not collected by pytest) — copy it to build a real baseline
+
+**API security defaults:**
+- CORS defaults to a localhost allowlist via `CORS_ORIGINS` (not `*`)
+- Optional API-key gate: set `API_KEY` to require an `X-API-Key` header on protected endpoints (`require_api_key` in api.py) — a seam, not full auth
 
 ## Extending
 
@@ -70,12 +85,12 @@ def dynamic_instructions(ctx: RunContext[AgentDeps]) -> str:
 
 ## Important Implementation Details
 
-**Streaming with Structured Outputs:**
-When the agent has a structured `output_type` (like `AgentResponse`), you must use `result.stream_output()` instead of `result.stream_text()`. The `stream_output()` method:
+**Streaming with Structured Outputs (only if you opt into `output_type`):**
+The default output is `str`, so `run_agent_stream()` uses `result.stream_text(delta=True)`. If you change `output_type` to a structured model, plain-text streaming no longer applies and you must switch to `result.stream_output()`, which:
 - Returns partial validated Pydantic objects as the response builds
 - Supports debouncing via `debounce_by` parameter (default 0.05s)
 - Each iteration yields the full object with fields filled as they become available
-- You must calculate deltas manually if you want to stream only new text
+- Requires you to calculate deltas manually if you want to stream only new text
 
 **Dashboard Static Assets:**
 - Static files are in `static/` at the project root (not `src/static/`)
@@ -97,7 +112,11 @@ The template includes a built-in conversation memory system that keeps context a
 - Uses Pydantic AI's native `message_history` parameter in `agent.run()`
 - Automatically loads and saves conversation history for each session
 - Enabled by default (opt-out via `MEMORY_ENABLED=false` or per-request flag)
-- In-memory storage by default (can be extended to file/Redis)
+- Stores the full turn (tool calls included) — do **not** filter tool messages; that corrupts history
+
+**Limitation:** the only backend that ships is in-memory (`InMemoryStorage`). History is
+**process-local and lost on restart**, and is **not shared across API worker processes**.
+For durable memory, implement the `MemoryStorage` interface (see "Extending Storage").
 
 **Key Components:**
 - `MemoryManager` (memory/manager.py): Orchestrates history loading/saving
@@ -174,22 +193,12 @@ GET /memory/stats
 → {"enabled": true, "storage_type": "memory", "total_sessions": 5, ...}
 ```
 
-**Memory Tools:**
-
-The agent has access to explicit memory tools:
-- `save_fact(key, value)`: Save a fact for later retrieval (e.g., "favorite_color", "birthday")
-- `retrieve_facts()`: Retrieve all saved facts
-
-These tools complement automatic conversation history by allowing the agent to save specific information that should persist across sessions.
-
 **Configuration:**
 
 ```bash
 # .env
 MEMORY_ENABLED=true                    # Enable/disable memory (default: true)
-MEMORY_STORAGE_TYPE=memory             # Storage backend: memory, file, redis
 MEMORY_MAX_MESSAGES=100                # Max messages per session
-MEMORY_MAX_TOKENS=                     # Optional token limit (rough estimate)
 MEMORY_AUTO_SESSION=true               # Auto-generate session_id from user_id
 ```
 
@@ -208,7 +217,7 @@ python -m src.main chat "Hello" --no-memory
 
 **Extending Storage:**
 
-To add file or Redis storage:
-1. Implement `MemoryStorage` interface in `memory/storage.py`
-2. Update `get_memory_manager()` in `memory/manager.py` to create the new backend
-3. Set `MEMORY_STORAGE_TYPE=file` or `redis` in `.env`
+No durable backend ships today (in-memory only). To add file or Redis storage:
+1. Implement the `MemoryStorage` interface in `memory/storage.py`
+2. Instantiate your backend in `get_memory_manager()` (memory/manager.py)
+3. Add a config knob to select it, and update the `memory_storage_type` Literal in config.py / models.py
