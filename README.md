@@ -199,7 +199,8 @@ docker run --env-file .env -p 8000:8000 my-agent serve --host 0.0.0.0
 
 ## 📚 Documentation
 
-- **[CLAUDE.md](CLAUDE.md)** - Complete development guide, architecture, streaming details
+- **[AGENTS.md](AGENTS.md)** - How to build agents on PydanKit (decision rules + definition of done); read by coding agents like Claude Code, Cursor, Copilot
+- **[CLAUDE.md](CLAUDE.md)** - Architecture, streaming details, file layout
 - **[tests/eval_example.py](tests/eval_example.py)** - Runnable Pydantic Evals pattern to copy
 - **[Pydantic AI Docs](https://ai.pydantic.dev/)** - Framework documentation
 

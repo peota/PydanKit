@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Building or extending an agent? Read [AGENTS.md](AGENTS.md) first** — it holds the decision rules, definition of done, and anti-patterns for working in this template. This file covers architecture and mechanics.
+
 ## Commands
 
 ```bash
@@ -69,20 +71,21 @@ returns **plain text by default**; structured output is an opt-in example.
 
 ## Extending
 
-Add a tool:
-1. Define async function in `tools.py` with `RunContext[AgentDeps]` as first param
-2. Register with `agent.tool(my_tool)` in `agent.py`
+**How and when to build on this template lives in [AGENTS.md](AGENTS.md)** — the
+single source of truth (decision rules, definition of done, anti-patterns). Read
+it before adding tools, changing the output type, or adding agents.
 
-Change output structure:
-1. Define new Pydantic model in `models.py`
-2. Update `output_type=` in agent definition
-
-Dynamic system prompt:
-```python
-@agent.instructions
-def dynamic_instructions(ctx: RunContext[AgentDeps]) -> str:
-    return f"Context: {ctx.deps.user_id}"
-```
+Quick reference for the mechanics:
+- **Add a tool:** define an `async def` in `tools.py` with `RunContext[AgentDeps]`
+  as the first param, then add it to the `TOOLS` list in `agent.py`.
+- **Change output structure:** define a model in `models.py` and set `output_type=`
+  in `get_agent()` (default is `str` — see AGENTS.md for when to do this).
+- **Dynamic system prompt:**
+  ```python
+  @agent.instructions
+  def dynamic_instructions(ctx: RunContext[AgentDeps]) -> str:
+      return f"Context: {ctx.deps.user_id}"
+  ```
 
 ## Important Implementation Details
 
