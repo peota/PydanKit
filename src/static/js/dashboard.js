@@ -69,6 +69,8 @@ const memoryStorage = document.getElementById('memory-storage');
 const memoryMaxMessages = document.getElementById('memory-max-messages');
 const sessionIdDisplay = document.getElementById('session-id');
 const toolsList = document.getElementById('tools-list');
+const apiKeyInput = document.getElementById('api-key-input');
+const appVersion = document.getElementById('app-version');
 const chatMessages = document.getElementById('chat-messages');
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
@@ -130,6 +132,19 @@ function resetSession() {
 currentSessionId = getOrCreateSessionId();
 sessionIdDisplay.textContent = currentSessionId;
 
+// Optional API key (only needed if the server sets API_KEY). Persist in localStorage
+// and send it as the X-API-Key header on gated requests.
+function getApiKey() {
+    return (localStorage.getItem('dashboard_api_key') || '').trim();
+}
+
+if (apiKeyInput) {
+    apiKeyInput.value = getApiKey();
+    apiKeyInput.addEventListener('input', () => {
+        localStorage.setItem('dashboard_api_key', apiKeyInput.value.trim());
+    });
+}
+
 // Initialize dashboard
 async function loadDashboard() {
     try {
@@ -174,6 +189,11 @@ function updateStatusPanel(health) {
 
     // Update model name
     modelName.textContent = health.model;
+
+    // Show the backend-reported version (avoids a hard-coded string drifting)
+    if (appVersion && health.version) {
+        appVersion.textContent = 'v' + health.version;
+    }
 }
 
 function updateInfoPanel(info) {
@@ -322,11 +342,18 @@ async function sendMessage(prompt) {
 
     const contentElement = agentMessageDiv.querySelector('.message-content');
     let fullContent = '';
+    let firstChunk = true;
 
     try {
+        const headers = { 'Content-Type': 'application/json' };
+        const apiKey = getApiKey();
+        if (apiKey) {
+            headers['X-API-Key'] = apiKey;
+        }
+
         const response = await fetch('/chat/stream', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({
                 prompt: prompt,
                 session_id: currentSessionId
@@ -356,6 +383,15 @@ async function sendMessage(prompt) {
                     }
 
                     fullContent += data;
+
+                    // First real content: drop the snug ".thinking" state so the
+                    // bubble expands to full message padding (via CSS).
+                    if (firstChunk) {
+                        firstChunk = false;
+                        const bubble = agentMessageDiv.querySelector('.agent-bubble');
+                        if (bubble) bubble.classList.remove('thinking');
+                    }
+
                     contentElement.textContent = fullContent;
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 }
@@ -381,11 +417,20 @@ function createAgentMessagePlaceholder() {
 
     const bubbleClass = 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-2xl rounded-tl-sm shadow-sm';
 
+    // Typing indicator (styled in index.html CSS, so it doesn't depend on the
+    // Tailwind CDN emitting utility classes for these JS-injected nodes). The
+    // bubble starts snug via .thinking; sendMessage() removes it on the first chunk.
+    const typingIndicator = `
+        <span class="typing-indicator" aria-label="Agent is thinking">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </span>
+    `;
+
     messageDiv.innerHTML = `
         ${avatarHtml}
         <div class="max-w-[85%] md:max-w-[75%]">
-            <div class="px-5 py-3.5 ${bubbleClass}">
-                <p class="message-content text-sm leading-relaxed whitespace-pre-wrap"></p>
+            <div class="agent-bubble thinking ${bubbleClass}">
+                <p class="message-content text-sm leading-relaxed whitespace-pre-wrap">${typingIndicator}</p>
             </div>
         </div>
     `;

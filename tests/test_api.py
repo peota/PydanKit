@@ -21,7 +21,9 @@ def client():
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json()["status"] == "healthy"
+    body = r.json()
+    assert body["status"] == "healthy"
+    assert body["version"]  # version is surfaced to the dashboard
 
 
 def test_info_lists_tools(client):

@@ -4,6 +4,8 @@ Install with: pip install -e ".[api]"
 Run with: python -m src.main serve
 """
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 try:
@@ -26,6 +28,11 @@ from src.memory.models import MemoryStats, SessionMetadata
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+try:
+    APP_VERSION = _pkg_version("PydanKit")
+except PackageNotFoundError:
+    APP_VERSION = "0.0.0+dev"
+
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
@@ -41,7 +48,7 @@ def sanitize_error(e: Exception, context: str = "request") -> str:
 app = FastAPI(
     title="Pydantic AI Agent API",
     description="REST API for the Pydantic AI Agent",
-    version="0.1.0",
+    version=APP_VERSION,
 )
 
 # Configure CORS from settings (default is a localhost allowlist, not "*").
@@ -52,6 +59,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _no_cache_dashboard(request, call_next):
+    """Serve the dashboard and its assets without caching.
+
+    This is a dev/demo dashboard: edits to the HTML/JS should show up on reload,
+    not be shadowed by the browser's heuristic cache.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 
 async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
@@ -100,6 +121,7 @@ class HealthResponse(BaseModel):
 
     status: str
     model: str
+    version: str
 
 
 class InfoResponse(BaseModel):
@@ -143,7 +165,7 @@ async def dashboard() -> FileResponse:
 @app.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Health check endpoint."""
-    return HealthResponse(status="healthy", model=settings.model_name)
+    return HealthResponse(status="healthy", model=settings.model_name, version=APP_VERSION)
 
 
 @app.get("/info", response_model=InfoResponse)
