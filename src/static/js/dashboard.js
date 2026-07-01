@@ -12,6 +12,32 @@ function toggleTheme() {
     localStorage.theme = isDark ? 'dark' : 'light';
 }
 
+// Mobile keyboard handling
+function initMobileKeyboard() {
+    const chatInput = document.getElementById('chat-input');
+    const chatMessages = document.getElementById('chat-messages');
+
+    if (!chatInput || !chatMessages) return;
+
+    // Use visualViewport API for better keyboard handling
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => {
+            // Scroll to bottom when keyboard opens/closes
+            requestAnimationFrame(() => {
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            });
+        });
+    }
+
+    // Scroll input into view on focus (for older browsers)
+    chatInput.addEventListener('focus', () => {
+        setTimeout(() => {
+            chatInput.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }, 300);
+    });
+}
+
 // Sidebar Logic
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
@@ -378,4 +404,7 @@ chatForm.addEventListener('submit', async (e) => {
 });
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', loadDashboard);
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboard();
+    initMobileKeyboard();
+});

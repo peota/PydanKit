@@ -6,10 +6,9 @@ WORKDIR /app
 # Install build dependencies
 RUN pip install --no-cache-dir build
 
-# Copy project files
+# Copy project files (static assets live under src/ and are bundled into the wheel)
 COPY pyproject.toml README.md ./
 COPY src/ src/
-COPY static/ static/
 
 # Build wheel
 RUN python -m build --wheel
@@ -29,9 +28,6 @@ COPY --from=builder /app/dist/*.whl /tmp/
 # Install the application with API extras
 RUN pip install --no-cache-dir /tmp/*.whl fastapi "uvicorn[standard]" && \
     rm /tmp/*.whl
-
-# Copy static files from builder
-COPY --from=builder /app/static/ /app/static/
 
 # Switch to non-root user
 USER agent

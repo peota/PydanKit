@@ -2,7 +2,7 @@
 <html lang="en" class="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>PydanKit</title>
     <link rel="icon" type="image/svg+xml" href="/static/assets/logo-white.svg">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -14,6 +14,12 @@
                 extend: {
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
+                    },
+                    padding: {
+                        'safe': 'env(safe-area-inset-bottom)',
+                    },
+                    height: {
+                        'dvh': '100dvh',
                     },
                 }
             }
@@ -30,24 +36,30 @@
             height: 8px;
         }
         ::-webkit-scrollbar-track {
-            background: transparent; 
+            background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-            background: #cbd5e1; 
+            background: #cbd5e1;
             border-radius: 4px;
         }
         .dark ::-webkit-scrollbar-thumb {
-            background: #475569; 
+            background: #475569;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8; 
+            background: #94a3b8;
         }
         .dark ::-webkit-scrollbar-thumb:hover {
-            background: #64748b; 
+            background: #64748b;
+        }
+        /* Mobile keyboard handling - use dvh for dynamic viewport */
+        @supports (height: 100dvh) {
+            body {
+                height: 100dvh;
+            }
         }
     </style>
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 h-screen overflow-hidden flex flex-col transition-colors duration-200">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 h-dvh h-screen overflow-hidden flex flex-col transition-colors duration-200">
 
     <!-- Mobile Sidebar Backdrop -->
     <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-900/50 z-20 hidden md:hidden glass transition-opacity" onclick="toggleSidebar()"></div>
@@ -213,13 +225,13 @@
             </div>
 
             <!-- Input Area -->
-            <div class="p-4 md:p-6 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 z-10">
+            <div class="p-4 md:p-6 pb-safe bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 z-10 shrink-0">
                 <form id="chat-form" class="relative max-w-4xl mx-auto">
                     <input
                         type="text"
                         id="chat-input"
                         placeholder="Type your message..."
-                        class="w-full pl-5 pr-14 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:focus:ring-slate-100/10 focus:border-slate-400 dark:focus:border-slate-500 transition-all text-sm shadow-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+                        class="w-full pl-5 pr-14 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:focus:ring-slate-100/10 focus:border-slate-400 dark:focus:border-slate-500 transition-all text-base md:text-sm shadow-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
                         autocomplete="off"
                     >
                     <button
