@@ -135,7 +135,7 @@ async def run_agent(
     logger.debug("AGENT RESPONSE")
     logger.debug("-" * 50)
     logger.debug("Content: %s", result.output)
-    logger.debug("Usage: %s", result.usage())
+    logger.debug("Usage: %s", result.usage)
     logger.debug("=" * 50)
 
     return result.output
@@ -191,7 +191,7 @@ async def run_agent_stream(
         )
         logger.debug("Saved %d new messages to memory", len(new_messages))
 
-    logger.debug("AGENT STREAM COMPLETE - Usage: %s", result.usage())
+    logger.debug("AGENT STREAM COMPLETE - Usage: %s", result.usage)
 
 
 def get_agent_info() -> dict:

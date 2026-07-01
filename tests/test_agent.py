@@ -8,7 +8,7 @@ from pydantic_ai import capture_run_messages
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from pydantic_ai.models.test import TestModel
 
-from src.agent import get_agent
+from src.agent import get_agent, run_agent, run_agent_stream
 from src.dependencies import AgentDeps
 
 
@@ -33,3 +33,21 @@ async def test_tool_called_and_deps_injected():
     assert any(tc.tool_name == "example_tool" for tc in tool_calls)
     # ...and its dependencies were injected (example_tool embeds user_id in its result).
     assert any("alice" in str(tr.content) for tr in tool_returns)
+
+
+async def test_run_agent_wrapper_returns_text():
+    """Exercises the app's run_agent wrapper (not just pydantic-ai's agent.run)."""
+    with get_agent().override(model=TestModel()):
+        out = await run_agent("hi", AgentDeps(memory_enabled=False))
+    assert isinstance(out, str) and out
+
+
+async def test_run_agent_stream_wrapper_completes():
+    """Regression: the wrapper's post-stream code called result.usage() (a property
+    in pydantic-ai 2.x), throwing after the text had streamed. Iterating to the end
+    must not raise."""
+    chunks = []
+    with get_agent().override(model=TestModel()):
+        async for chunk in run_agent_stream("hi", AgentDeps(memory_enabled=False)):
+            chunks.append(chunk)
+    assert "".join(chunks)
