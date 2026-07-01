@@ -46,6 +46,7 @@ returns **plain text by default**; structured output is an opt-in example.
 - Usage limits (agent.py): every run passes `UsageLimits(request_limit=...)` so a misbehaving tool can't loop forever. Configure via `AGENT_REQUEST_LIMIT`.
 - Tools (tools.py): Async functions registered with `agent.tool()`. First param is always `ctx: RunContext[AgentDeps]`.
 - Settings (config.py): Environment-based config via pydantic-settings, loaded from `.env`.
+- Provider-agnostic (config.py): `config.py` calls `load_dotenv()` so provider SDKs read their own keys from the environment on any entry point. Set `MODEL_NAME` to any supported model (`openai:...`, `anthropic:...`, `groq:...`, `deepseek:...`, `google:...`) and supply that provider's key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.). No provider key is modeled in `Settings` — do not re-add one.
 - Lazy initialization (agent.py): Agent created via `get_agent()` on first use, not at import time. This allows CLI `--help` to work without API keys.
 - REST API (api.py): Optional FastAPI server with dashboard. Install with `pip install -e ".[api]"`.
 - Dashboard (static/index.html): Web UI served at `/` with status, tools list, and chat interface. Uses Tailwind CSS via CDN.

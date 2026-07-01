@@ -1,7 +1,6 @@
 """Agent definition and execution."""
 
 import logging
-import os
 from functools import lru_cache
 
 import logfire
@@ -37,12 +36,6 @@ def _configure_logging(settings: Settings) -> None:
         logger.debug("Debug mode enabled - verbose logging active")
 
 
-def _configure_environment(settings: Settings) -> None:
-    """Set environment variables from settings for pydantic-ai providers."""
-    if settings.openai_api_key:
-        os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
-
-
 def _configure_logfire(settings: Settings) -> None:
     """Configure Logfire for observability."""
     if settings.logfire_token:
@@ -66,7 +59,6 @@ def get_agent() -> Agent[AgentDeps, str]:
     """
     settings = get_settings()
     _configure_logging(settings)
-    _configure_environment(settings)
     _configure_logfire(settings)
 
     agent = Agent(

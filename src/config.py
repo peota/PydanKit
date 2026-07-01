@@ -3,7 +3,15 @@
 from functools import lru_cache
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load .env into the process environment so provider SDKs can read their own keys
+# regardless of entry point (CLI or the uvicorn-loaded API). Pydantic AI is
+# provider-agnostic: set MODEL_NAME to any supported model and provide that
+# provider's standard key (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY, GROQ_API_KEY,
+# DEEPSEEK_API_KEY, GEMINI_API_KEY). We do NOT model provider keys here on purpose.
+load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -11,10 +19,11 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # LLM Configuration
-    # NOTE: pick a model your account can access; verify it still exists before shipping.
+    # LLM Configuration. Provider-agnostic model string, e.g.:
+    #   openai:gpt-4o | anthropic:claude-sonnet-4-5 | groq:llama-3.3-70b-versatile
+    #   deepseek:deepseek-chat | google:gemini-2.0-flash
+    # Pick a model your account can access and verify it exists before shipping.
     model_name: str = "openai:gpt-4o"
-    openai_api_key: str = ""
 
     # Bound a single agent run so a misbehaving tool can't loop forever (cost/hang guard).
     agent_request_limit: int = 5

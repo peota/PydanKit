@@ -25,9 +25,11 @@ A minimal, well-structured skeleton for building AI agents with [Pydantic AI](ht
 # Clone and install
 pip install -e ".[dev]"
 
-# Add your OpenAI API key
+# Add your provider API key (any provider works)
 cp .env.example .env
-# Edit .env and add: OPENAI_API_KEY=sk-...
+# Edit .env: set MODEL_NAME and the matching key, e.g.
+#   MODEL_NAME=openai:gpt-4o     + OPENAI_API_KEY=sk-...
+#   MODEL_NAME=anthropic:claude-sonnet-4-5 + ANTHROPIC_API_KEY=...
 ```
 
 ### 2. Try it out
@@ -154,14 +156,20 @@ src/
 
 ## 🔧 Common Tasks
 
-**Switch LLM provider** (`.env`):
+**Switch LLM provider** (`.env`) — provider-agnostic; set `MODEL_NAME` and that provider's key:
 ```bash
-# Anthropic Claude
-MODEL_NAME=anthropic:claude-3-5-sonnet-latest
-
-# Local Ollama
-MODEL_NAME=ollama:llama3.2
+# OpenAI          -> OPENAI_API_KEY
+MODEL_NAME=openai:gpt-4o
+# Anthropic Claude -> ANTHROPIC_API_KEY
+MODEL_NAME=anthropic:claude-sonnet-4-5
+# Groq            -> GROQ_API_KEY
+MODEL_NAME=groq:llama-3.3-70b-versatile
+# DeepSeek        -> DEEPSEEK_API_KEY
+MODEL_NAME=deepseek:deepseek-chat
+# Google Gemini   -> GEMINI_API_KEY
+MODEL_NAME=google:gemini-2.0-flash
 ```
+All provider SDKs ship with the `pydantic-ai` dependency, so no extra install is needed to switch.
 
 **Add dependencies** (`src/dependencies.py`):
 ```python
