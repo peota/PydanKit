@@ -180,7 +180,7 @@ async def info() -> InfoResponse:
             model=settings.model_name,
             tools=[],
             debug=settings.debug,
-            logfire_enabled=settings.logfire_token is not None,
+            logfire_enabled=bool(settings.logfire_token),
             memory_enabled=settings.memory_enabled,
             memory_storage_type=settings.memory_storage_type,
             memory_max_messages=settings.memory_max_messages,
