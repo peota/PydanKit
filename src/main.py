@@ -120,6 +120,109 @@ def sessions(
     typer.echo("Use --help for more information.")
 
 
+def _auth_store():
+    """Load the auth store, or exit with a friendly hint if extras are missing."""
+    try:
+        from src.auth.dependencies import get_auth_store
+    except ImportError:
+        typer.echo("Auth extras not installed. Run: pip install -e '.[auth]'", err=True)
+        raise typer.Exit(1)
+    return get_auth_store()
+
+
+def _read_password() -> str:
+    """Prompt for a password on a TTY (hidden, confirmed); else read one line of stdin.
+
+    The stdin fallback makes the command scriptable (Docker/CI bootstrap) without a
+    ``--password`` flag that would leak into shell history and process listings.
+    """
+    if sys.stdin.isatty():
+        return typer.prompt("Password", hide_input=True, confirmation_prompt=True)
+    password = sys.stdin.readline().strip()
+    if not password:
+        typer.echo("No password provided on stdin", err=True)
+        raise typer.Exit(1)
+    return password
+
+
+@app.command()
+def users(
+    add: str | None = typer.Option(None, "--add", help="Create a user with this username"),
+    admin: bool = typer.Option(False, "--admin", help="Grant admin rights (with --add)"),
+    list_users: bool = typer.Option(False, "--list", "-l", help="List all users"),
+    disable: str | None = typer.Option(None, "--disable", help="Disable a user by username"),
+    enable: str | None = typer.Option(None, "--enable", help="Re-enable a user by username"),
+) -> None:
+    """Manage user accounts.
+
+    The CLI is a trusted admin shell (ADR 0001): it needs no login. Use ``--add``
+    to bootstrap the first admin on a fresh database.
+    """
+    from src.auth.db import UsernameTakenError
+
+    store = _auth_store()
+
+    if add:
+        password = _read_password()
+        try:
+            user = asyncio.run(store.create_user(add, password, is_admin=admin))
+        except UsernameTakenError:
+            typer.echo(f"User already exists: {add}", err=True)
+            raise typer.Exit(1)
+        typer.echo(f"Created user '{user.username}'" + (" (admin)" if user.is_admin else ""))
+        return
+
+    if disable or enable:
+        username = disable or enable
+        user = asyncio.run(store.get_user_by_username(username))
+        if user is None:
+            typer.echo(f"No such user: {username}", err=True)
+            raise typer.Exit(1)
+        asyncio.run(store.set_disabled(user.id, disabled=bool(disable)))
+        typer.echo(f"{'Disabled' if disable else 'Enabled'} user '{username}'")
+        return
+
+    if list_users:
+        all_users = asyncio.run(store.list_users())
+        if not all_users:
+            typer.echo("No users. Create the first admin with: users --add <name> --admin")
+            return
+        typer.echo(f"\nFound {len(all_users)} user(s):\n")
+        for u in all_users:
+            flags = []
+            if u.is_admin:
+                flags.append("admin")
+            if u.disabled:
+                flags.append("disabled")
+            suffix = f" [{', '.join(flags)}]" if flags else ""
+            typer.echo(f"  {u.username}{suffix}")
+        typer.echo()
+        return
+
+    typer.echo("Usage: users --add <name> [--admin] | --list | --disable <name> | --enable <name>")
+
+
+@app.command()
+def apikey(
+    issue: str | None = typer.Option(None, "--issue", help="Issue an API key for this username"),
+    name: str = typer.Option("cli", "--name", help="Label to record for the key"),
+) -> None:
+    """Issue a per-user API key for programmatic access (shown once)."""
+    if not issue:
+        typer.echo("Usage: apikey --issue <username>", err=True)
+        raise typer.Exit(1)
+
+    store = _auth_store()
+    user = asyncio.run(store.get_user_by_username(issue))
+    if user is None:
+        typer.echo(f"No such user: {issue}", err=True)
+        raise typer.Exit(1)
+
+    key = asyncio.run(store.issue_token(user.id, "api_key", name=name))
+    typer.echo(f"API key for '{issue}' (store it now - it will not be shown again):")
+    typer.echo(key)
+
+
 @app.command()
 def serve(
     host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host to bind to"),

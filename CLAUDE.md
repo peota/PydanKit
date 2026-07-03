@@ -24,10 +24,14 @@ pytest
 python -m src.main chat "Your prompt here"
 python -m src.main interactive
 
-# Install and run API server (optional)
+# Install and run API server (optional; [api] bundles the auth deps)
 pip install -e ".[api]"
 python -m src.main serve --port 8000
 # Dashboard available at http://localhost:8000/
+
+# Authentication (on by default; see the Authentication section)
+python -m src.main users --add alice --admin   # create the first admin (trusted CLI)
+python -m src.main apikey --issue alice         # issue a per-user API key
 
 # Docker (includes API extras)
 docker build -t pydantic-ai-agent .
@@ -66,8 +70,9 @@ returns **plain text by default**; structured output is an opt-in example.
 - `tests/eval_example.py` is a runnable Pydantic Evals pattern (not collected by pytest) — copy it to build a real baseline
 
 **API security defaults:**
-- CORS defaults to a localhost allowlist via `CORS_ORIGINS` (not `*`)
-- Optional API-key gate: set `API_KEY` to require an `X-API-Key` header on protected endpoints (`require_api_key` in api.py) — a seam, not full auth
+- CORS defaults to a localhost allowlist via `CORS_ORIGINS` (not `*`). With auth on, `allow_credentials=True`, so `CORS_ORIGINS` must never be `*`.
+- Per-user authentication is **on by default** (`AUTH_ENABLED=true`); set it `false` to run open. See "Authentication" below and [ADR 0001](docs/adr/0001-authentication.md).
+- Legacy `API_KEY` gate: when `AUTH_ENABLED=false`, setting `API_KEY` still requires a matching `X-API-Key` header (now enforced inside `get_current_user`, `src/auth/dependencies.py`). When auth is on, per-user credentials replace it.
 
 ## Extending
 
@@ -97,8 +102,8 @@ The default output is `str`, so `run_agent_stream()` uses `result.stream_text(de
 - Requires you to calculate deltas manually if you want to stream only new text
 
 **Dashboard Static Assets:**
-- Static files are in `static/` at the project root (not `src/static/`)
-- `STATIC_DIR = Path(__file__).parent / "static"` in api.py
+- Static files are in `src/static/` (next to `api.py`), not the project root
+- `STATIC_DIR = Path(__file__).parent / "static"` in api.py — `api.py` lives in `src/`, so this resolves to `src/static/`
 - Dashboard uses Tailwind CSS CDN (no build step required)
 - Logo SVG files: `static/assets/logo.svg` (black) and `static/assets/logo-white.svg` (white for favicon)
 - JavaScript: `static/js/dashboard.js` handles SSE streaming, theme toggle, and chat UI
@@ -118,9 +123,11 @@ The template includes a built-in conversation memory system that keeps context a
 - Enabled by default (opt-out via `MEMORY_ENABLED=false` or per-request flag)
 - Stores the full turn (tool calls included) — do **not** filter tool messages; that corrupts history
 
-**Limitation:** the only backend that ships is in-memory (`InMemoryStorage`). History is
-**process-local and lost on restart**, and is **not shared across API worker processes**.
-For durable memory, implement the `MemoryStorage` interface (see "Extending Storage").
+**Backends:** the default is in-memory (`InMemoryStorage`) — **process-local, lost on
+restart, not shared across API workers**. A durable **SQLite backend ships**
+(`SqliteMemoryStorage`, `src/memory/sqlite_storage.py`): set `MEMORY_STORAGE_TYPE=sqlite`
+(needs the `[auth]` extra) to persist history in `DATABASE_PATH` and share it across
+workers. For other stores (Redis, etc.), implement `MemoryStorage` (see "Extending Storage").
 
 **Key Components:**
 - `MemoryManager` (memory/manager.py): Orchestrates history loading/saving
@@ -221,7 +228,38 @@ python -m src.main chat "Hello" --no-memory
 
 **Extending Storage:**
 
-No durable backend ships today (in-memory only). To add file or Redis storage:
-1. Implement the `MemoryStorage` interface in `memory/storage.py`
-2. Instantiate your backend in `get_memory_manager()` (memory/manager.py)
-3. Add a config knob to select it, and update the `memory_storage_type` Literal in config.py / models.py
+Two backends ship: `InMemoryStorage` (default) and `SqliteMemoryStorage`
+(`MEMORY_STORAGE_TYPE=sqlite`). To add another (e.g. Redis):
+1. Implement the `MemoryStorage` interface (follow `sqlite_storage.py` as a model)
+2. Select it in `get_memory_manager()` (memory/manager.py), imported lazily
+3. Extend the `memory_storage_type` Literal in config.py / models.py
+
+## Authentication
+
+Per-user auth with SQLite (ADR 0001). **On by default** — a fresh clone shows a login
+screen, so create a user first (set `AUTH_ENABLED=false` to run open instead).
+
+```bash
+pip install -e ".[auth]"                        # aiosqlite + bcrypt (bundled with [api])
+
+# Enable in .env: AUTH_ENABLED=true  (and DATABASE_PATH, SESSION_TTL_DAYS, ... as needed)
+python -m src.main users --add alice --admin    # create the first admin (trusted CLI)
+python -m src.main users --list
+python -m src.main apikey --issue alice          # per-user API key for programs
+```
+
+- **One store, two doors:** an opaque token in an HttpOnly cookie (dashboard login)
+  or an `Authorization: Bearer` / `X-API-Key` header (programs), resolved by
+  `get_current_user` (`src/auth/dependencies.py`). Revoke = delete the row.
+- **Isolation:** `user_id` is *not* in the request body; identity comes from the
+  credential, and every data route scopes to the caller. The CLI is a trusted,
+  unauthenticated admin shell **by design** — do not add a login to it.
+- **Admin panel ([ADR 0002](docs/adr/0002-admin-ui-service-accounts.md)):** admins get
+  `/admin/*` routes (behind `require_admin`, 404 when auth is off) and a dashboard panel
+  to create **passwordless service accounts** and issue/list/revoke their API keys.
+  UI-created accounts are **never admin**; admin accounts can't be managed from the UI.
+- **Bootstrap without a shell:** set `ADMIN_USERNAME`/`ADMIN_PASSWORD` to env-seed the
+  first admin on startup (FastAPI lifespan in `api.py`) when no admin exists.
+- **Config:** `AUTH_ENABLED`, `DATABASE_PATH`, `SESSION_TTL_DAYS`,
+  `SESSION_COOKIE_SECURE` (set true behind TLS), `LOGIN_MAX_ATTEMPTS`,
+  `LOGIN_LOCKOUT_SECONDS`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`.

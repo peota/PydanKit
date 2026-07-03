@@ -36,16 +36,42 @@ class Settings(BaseSettings):
 
     # API server
     # Allowed CORS origins for the API. Default is restrictive; add your frontend origin(s).
-    # Set to ["*"] only if you understand the implications (and never with credentials).
+    # Must NOT be ["*"]: credentials are always enabled on the API, and the app refuses
+    # to start with a wildcard origin (it would leak the session cookie cross-site).
     cors_origins: list[str] = ["http://localhost:8000"]
     # Optional API key. When set, the API requires an "X-API-Key" header matching this value.
+    # Legacy single-shared-secret gate. Superseded by per-user auth (see ADR 0001) when
+    # AUTH_ENABLED=true; kept for machine-to-machine convenience.
     api_key: str | None = None
 
+    # Authentication (ADR 0001). On by default: a fresh clone requires creating a
+    # user before signing in to the dashboard (the login screen shows the command:
+    # `python -m src.main users --add <name> --admin`). Set AUTH_ENABLED=false to run
+    # open, in which case the API is unprotected and user_id falls back to the
+    # request/anonymous value. (ADR 0001 recommends false; the shipped default is true.)
+    auth_enabled: bool = True
+    # Single SQLite database for users, tokens, and (optionally) conversation memory.
+    database_path: str = "pydankit.db"
+    # First-admin bootstrap for shell-less deploys (ADR 0002): if auth is on and no
+    # admin exists yet, an admin with these credentials is created on startup. Leave
+    # unset to skip. Rotate/clear the password after first login.
+    admin_username: str | None = None
+    admin_password: str | None = None
+    # Dashboard session cookie lifetime (sliding: extended on activity).
+    session_ttl_days: int = 7
+    # Mark the session cookie Secure (HTTPS-only). Default false so the localhost
+    # demo works over http; set true in any deployment served over TLS.
+    session_cookie_secure: bool = False
+    # Login brute-force throttle: lock out after N failures within the window.
+    login_max_attempts: int = 5
+    login_lockout_seconds: int = 300
+
     # Memory Configuration
-    # Storage is process-local and in-memory: history is lost on restart and is NOT
-    # shared across API worker processes. Persist it by implementing MemoryStorage.
+    # Default backend ("memory") is process-local: history is lost on restart and NOT
+    # shared across API workers. Set MEMORY_STORAGE_TYPE=sqlite for a durable, shared
+    # backend (SqliteMemoryStorage, persisted in DATABASE_PATH).
     memory_enabled: bool = True  # Enabled by default for better UX
-    memory_storage_type: Literal["memory"] = "memory"
+    memory_storage_type: Literal["memory", "sqlite"] = "memory"
     memory_max_messages: int = 100
     memory_auto_session: bool = True  # Auto-generate session_id from user_id
 

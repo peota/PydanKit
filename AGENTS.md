@@ -35,10 +35,16 @@ smaller change and say what you deliberately left out.
   Read-only tools need none. Don't build a guardrail layer for a toy tool.
 - **Model selection.** Prototype with a capable model to establish a baseline,
   then downshift to cheaper/faster models and confirm quality holds via evals.
-- **Memory.** History is in-memory and **ephemeral** (lost on restart, not shared
-  across API workers). If you need durability, implement the `MemoryStorage`
-  interface (`src/memory/storage.py`) and select it in `get_memory_manager`.
+- **Memory.** The default backend is in-memory and **ephemeral** (lost on restart,
+  not shared across API workers). A durable **SQLite backend now ships**
+  (`SqliteMemoryStorage`, `src/memory/sqlite_storage.py`); select it with
+  `MEMORY_STORAGE_TYPE=sqlite` (needs the `[auth]` extra). For other backends,
+  implement the `MemoryStorage` interface and select it in `get_memory_manager`.
   Do not hack persistence in elsewhere.
+- **Auth.** On by default (`AUTH_ENABLED=true`; set false to run open). Identity
+  (ADR 0001) comes from the credential, never the request body, and every data route
+  scopes to the caller. Don't re-introduce a client-supplied `user_id`, and don't add
+  a second parallel auth gate — extend the one resolver (`src/auth/dependencies.py`).
 - **Providers.** The template is provider-agnostic. Switch models via `MODEL_NAME`
   (e.g. `anthropic:claude-sonnet-4-5`, `deepseek:deepseek-chat`) and the
   provider's standard env key. **Never** hard-code a provider or add a
@@ -72,6 +78,25 @@ python -m tests.eval_example     # run the Pydantic Evals example
 python -m src.main chat "..."    # run the agent
 python -m src.main serve         # API + dashboard (needs: pip install -e ".[api]")
 ```
+
+## Decision records (ADRs)
+
+Significant, hard-to-reverse design decisions are recorded in [`docs/adr/`](docs/adr/).
+Read the relevant ADR before touching the area it covers, and add a new one
+(don't silently diverge) when you make a decision of similar weight.
+
+- [ADR 0001 — Authentication & multi-user data isolation](docs/adr/0001-authentication.md)
+  *(Implemented.)* Standing invariants: **the CLI (`python -m src.main`) is an
+  unauthenticated, trusted admin shell by design** — do not "harden" it with a
+  login; `user_id` comes from the authenticated identity, never the request body;
+  and agent output must stay escaped in the dashboard (no markdown-to-HTML without
+  sanitization) — that's the XSS backstop for the session cookie.
+- [ADR 0002 — Admin UI for service accounts & keys](docs/adr/0002-admin-ui-service-accounts.md)
+  *(Implemented; amends 0001.)* Admin-only `/admin/*` endpoints + dashboard panel to
+  manage passwordless service accounts and their API keys. Invariants: **the UI never
+  grants admin** (no self-propagating admin keys), first admin is **env-seeded**
+  (no public setup endpoint — race-to-setup takeover), and admin secrets render via
+  `textContent`, never `innerHTML`. No audit trail in v1 (documented gap).
 
 ## Anti-patterns (do NOT reintroduce these — they've all bitten this repo)
 

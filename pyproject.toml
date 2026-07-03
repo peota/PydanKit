@@ -35,9 +35,21 @@ Repository = "https://github.com/peota/PydanKit.git"
 Issues = "https://github.com/peota/PydanKit/issues"
 
 [project.optional-dependencies]
+# Authentication + durable SQLite storage (users, tokens, conversation memory).
+# Needed when AUTH_ENABLED=true or memory_storage_type="sqlite", and always by the
+# API (api.py imports the auth resolver at load time). Upper bounds keep a future
+# major from silently breaking a fresh clone.
+auth = [
+    "aiosqlite>=0.19,<1.0",
+    "bcrypt>=4.0,<5.0",
+]
 api = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
+    # The API server integrates auth (login/session routes, the resolver dependency),
+    # so it pulls in the auth deps even when AUTH_ENABLED is false.
+    "aiosqlite>=0.19,<1.0",
+    "bcrypt>=4.0,<5.0",
 ]
 dev = [
     "ruff>=0.1.0",

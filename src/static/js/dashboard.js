@@ -69,8 +69,21 @@ const memoryStorage = document.getElementById('memory-storage');
 const memoryMaxMessages = document.getElementById('memory-max-messages');
 const sessionIdDisplay = document.getElementById('session-id');
 const toolsList = document.getElementById('tools-list');
-const apiKeyInput = document.getElementById('api-key-input');
 const appVersion = document.getElementById('app-version');
+const accountSection = document.getElementById('account-section');
+const accountUsername = document.getElementById('account-username');
+const loginOverlay = document.getElementById('login-overlay');
+const loginForm = document.getElementById('login-form');
+const loginUsername = document.getElementById('login-username');
+const loginPassword = document.getElementById('login-password');
+const loginError = document.getElementById('login-error');
+const loginButton = document.getElementById('login-button');
+const adminPanelButton = document.getElementById('admin-panel-button');
+const adminOverlay = document.getElementById('admin-overlay');
+const adminAccountsList = document.getElementById('admin-accounts-list');
+const createAccountForm = document.getElementById('create-account-form');
+const newAccountUsername = document.getElementById('new-account-username');
+const adminError = document.getElementById('admin-error');
 const chatMessages = document.getElementById('chat-messages');
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
@@ -132,26 +145,54 @@ function resetSession() {
 currentSessionId = getOrCreateSessionId();
 sessionIdDisplay.textContent = currentSessionId;
 
-// Optional API key (only needed if the server sets API_KEY). Persist in localStorage
-// and send it as the X-API-Key header on gated requests.
-function getApiKey() {
-    return (localStorage.getItem('dashboard_api_key') || '').trim();
+// Auth is cookie-based (ADR 0001): the HttpOnly session cookie rides along with
+// `credentials: 'include'`, so JS never handles the token. Unsafe requests send a
+// custom header the server requires as a lightweight CSRF check.
+function authedFetch(url, options = {}) {
+    const opts = { credentials: 'include', ...options };
+    const method = (opts.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') {
+        opts.headers = { ...(opts.headers || {}), 'X-Requested-With': 'fetch' };
+    }
+    return fetch(url, opts);
 }
 
-if (apiKeyInput) {
-    apiKeyInput.value = getApiKey();
-    apiKeyInput.addEventListener('input', () => {
-        localStorage.setItem('dashboard_api_key', apiKeyInput.value.trim());
-    });
+function showLogin() {
+    if (loginOverlay) loginOverlay.classList.remove('hidden');
+    if (loginUsername) loginUsername.focus();
+}
+
+function hideLogin() {
+    if (loginOverlay) loginOverlay.classList.add('hidden');
+    if (loginError) loginError.classList.add('hidden');
+    if (loginForm) loginForm.reset();
+}
+
+async function logout() {
+    try {
+        await authedFetch('/auth/logout', { method: 'POST' });
+    } catch (error) {
+        console.error('Logout error:', error);
+    }
+    // Whatever the server said, drop the local view and require sign-in again.
+    if (accountSection) accountSection.classList.add('hidden');
+    showLogin();
 }
 
 // Initialize dashboard
 async function loadDashboard() {
     try {
+        // /health is public; /info requires auth when it's enabled.
         const [healthResponse, infoResponse] = await Promise.all([
-            fetch('/health'),
-            fetch('/info')
+            authedFetch('/health'),
+            authedFetch('/info')
         ]);
+
+        // Not signed in (auth enabled) -> show the login overlay and stop.
+        if (infoResponse.status === 401) {
+            showLogin();
+            return;
+        }
 
         if (!healthResponse.ok || !infoResponse.ok) {
             throw new Error('Failed to fetch dashboard data');
@@ -159,6 +200,10 @@ async function loadDashboard() {
 
         const health = await healthResponse.json();
         const info = await infoResponse.json();
+
+        // Signed in -> we got here past the 401, so hide any login overlay.
+        hideLogin();
+        updateAccountPanel(info.authenticated_user, info.is_admin);
 
         // If there's a config error, show partial status
         if (info.error) {
@@ -172,6 +217,19 @@ async function loadDashboard() {
         console.error('Dashboard load error:', error);
         setErrorState();
     }
+}
+
+function updateAccountPanel(username, isAdmin) {
+    // authenticated_user is null when auth is disabled -> no account UI at all.
+    if (!accountSection) return;
+    if (username) {
+        accountUsername.textContent = username;
+        accountSection.classList.remove('hidden');
+    } else {
+        accountSection.classList.add('hidden');
+    }
+    // The admin panel button is only for admins.
+    if (adminPanelButton) adminPanelButton.classList.toggle('hidden', !isAdmin);
 }
 
 function updateStatusPanel(health) {
@@ -345,20 +403,21 @@ async function sendMessage(prompt) {
     let firstChunk = true;
 
     try {
-        const headers = { 'Content-Type': 'application/json' };
-        const apiKey = getApiKey();
-        if (apiKey) {
-            headers['X-API-Key'] = apiKey;
-        }
-
-        const response = await fetch('/chat/stream', {
+        const response = await authedFetch('/chat/stream', {
             method: 'POST',
-            headers: headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 prompt: prompt,
                 session_id: currentSessionId
             })
         });
+
+        // Session expired or signed out elsewhere -> bounce to login.
+        if (response.status === 401) {
+            contentElement.textContent = 'Your session expired. Please sign in again.';
+            showLogin();
+            return;
+        }
 
         if (!response.ok) {
             throw new Error('Failed to get response');
@@ -447,6 +506,288 @@ chatForm.addEventListener('submit', async (e) => {
     chatInput.value = '';
     await sendMessage(prompt);
 });
+
+function showLoginError(msg) {
+    if (!loginError) return;
+    loginError.textContent = msg;
+    loginError.classList.remove('hidden');
+}
+
+if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = loginUsername.value.trim();
+        const password = loginPassword.value;
+        if (!username || !password) return;
+
+        loginButton.disabled = true;
+        loginError.classList.add('hidden');
+        try {
+            const response = await authedFetch('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            if (response.ok) {
+                hideLogin();
+                await loadDashboard();
+            } else if (response.status === 429) {
+                showLoginError('Too many attempts. Please wait and try again.');
+            } else {
+                showLoginError('Invalid username or password.');
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            showLoginError('Could not reach the server. Please try again.');
+        } finally {
+            loginButton.disabled = false;
+        }
+    });
+}
+
+// ---- Admin panel (ADR 0002) --------------------------------------------------
+// Dynamic values (usernames, key names/hashes) are rendered via textContent, never
+// innerHTML — the same XSS invariant that protects agent output now protects secrets.
+
+function openAdmin() {
+    if (!adminOverlay) return;
+    adminOverlay.classList.remove('hidden');
+    loadAccounts();
+}
+
+function closeAdmin() {
+    if (adminOverlay) adminOverlay.classList.add('hidden');
+    if (adminError) adminError.classList.add('hidden');
+}
+
+function showAdminError(msg) {
+    if (!adminError) return;
+    adminError.textContent = msg;
+    adminError.classList.remove('hidden');
+}
+
+function smallButton(label, onClick) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.className = 'px-2 py-1 text-[11px] font-medium border border-slate-200 dark:border-slate-600 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700';
+    b.addEventListener('click', onClick);
+    return b;
+}
+
+function badge(text, cls) {
+    const s = document.createElement('span');
+    s.textContent = text;
+    s.className = 'px-1.5 py-0.5 rounded text-[10px] font-medium ' + cls;
+    return s;
+}
+
+async function loadAccounts() {
+    if (!adminAccountsList) return;
+    adminError.classList.add('hidden');
+    adminAccountsList.textContent = 'Loading…';
+    try {
+        const res = await authedFetch('/admin/users');
+        if (!res.ok) throw new Error('list failed: ' + res.status);
+        const users = await res.json();
+        adminAccountsList.textContent = '';
+        for (const u of users) adminAccountsList.appendChild(renderAccount(u));
+    } catch (e) {
+        console.error('Load accounts error:', e);
+        adminAccountsList.textContent = '';
+        showAdminError('Could not load accounts.');
+    }
+}
+
+function renderAccount(u) {
+    const card = document.createElement('div');
+    card.className = 'border border-slate-200 dark:border-slate-700 rounded-xl p-3';
+
+    const head = document.createElement('div');
+    head.className = 'flex items-center justify-between gap-2';
+
+    const left = document.createElement('div');
+    left.className = 'flex items-center gap-1.5 min-w-0 flex-wrap';
+    const name = document.createElement('span');
+    name.className = 'text-sm font-medium text-slate-900 dark:text-slate-100 truncate';
+    name.textContent = u.username;
+    left.appendChild(name);
+    if (u.is_admin) left.appendChild(badge('admin', 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'));
+    if (u.is_service) left.appendChild(badge('service', 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'));
+    if (u.disabled) left.appendChild(badge('disabled', 'bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400'));
+    head.appendChild(left);
+
+    // Actions are for non-admin accounts only (can't manage admins from the UI).
+    if (!u.is_admin) {
+        const actions = document.createElement('div');
+        actions.className = 'flex gap-1 shrink-0';
+        if (u.disabled) {
+            // Frozen account: its keys are inert until re-enabled. Offer only Enable
+            // (issuing a key here would be dead on arrival).
+            actions.appendChild(smallButton('Enable', () => setAccountDisabled(u.id, false)));
+        } else {
+            actions.appendChild(smallButton('Issue key', () => issueKey(u.id, card)));
+            actions.appendChild(smallButton('Disable', () => setAccountDisabled(u.id, true)));
+        }
+        head.appendChild(actions);
+    }
+    card.appendChild(head);
+
+    const keys = document.createElement('div');
+    keys.className = 'mt-2 space-y-1';
+    keys.dataset.userId = u.id;
+    card.appendChild(keys);
+    loadKeys(u.id, keys);
+
+    return card;
+}
+
+async function loadKeys(userId, container) {
+    try {
+        const res = await authedFetch(`/admin/users/${userId}/keys`);
+        if (!res.ok) return;
+        const keys = await res.json();
+        container.textContent = '';
+        if (keys.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'text-[11px] text-slate-400 dark:text-slate-500';
+            empty.textContent = 'No active keys.';
+            container.appendChild(empty);
+            return;
+        }
+        for (const k of keys) container.appendChild(renderKeyRow(userId, k, container));
+    } catch (e) {
+        console.error('Load keys error:', e);
+    }
+}
+
+function renderKeyRow(userId, k, container) {
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between gap-2 text-[11px] bg-slate-50 dark:bg-slate-800 rounded-md px-2 py-1';
+    const label = document.createElement('span');
+    label.className = 'font-mono text-slate-600 dark:text-slate-300 truncate';
+    label.textContent = (k.name || 'key') + ' · ' + k.token_hash.slice(0, 10) + '…';
+    row.appendChild(label);
+    const revoke = document.createElement('button');
+    revoke.textContent = 'Revoke';
+    revoke.className = 'text-rose-500 hover:text-rose-600 font-medium shrink-0';
+    revoke.addEventListener('click', () => revokeKey(k.token_hash, userId, container));
+    row.appendChild(revoke);
+    return row;
+}
+
+async function createAccount(username) {
+    const res = await authedFetch('/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+    });
+    if (res.status === 201) {
+        newAccountUsername.value = '';
+        adminError.classList.add('hidden');
+        loadAccounts();
+    } else if (res.status === 409) {
+        showAdminError('That username already exists.');
+    } else {
+        showAdminError('Could not create account (allowed: letters, digits, _ . -).');
+    }
+}
+
+async function issueKey(userId, card) {
+    const res = await authedFetch(`/admin/users/${userId}/keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: null })
+    });
+    if (!res.ok) { showAdminError('Could not issue key.'); return; }
+    const data = await res.json();
+    showKeyOnce(card, data.key);
+    const keysContainer = card.querySelector('[data-user-id]');
+    if (keysContainer) loadKeys(userId, keysContainer);
+}
+
+function showKeyOnce(card, key) {
+    // Rebuild fresh so a re-issue replaces any previous box cleanly.
+    const existing = card.querySelector('.new-key-box');
+    if (existing) existing.remove();
+
+    const box = document.createElement('div');
+    box.className = 'new-key-box mt-2 p-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-md';
+
+    const note = document.createElement('p');
+    note.className = 'text-[10px] text-emerald-700 dark:text-emerald-400 mb-1.5';
+    note.textContent = 'New key — copy it now, it will not be shown again:';
+    box.appendChild(note);
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-1.5';
+
+    const val = document.createElement('code');
+    val.className = 'new-key-val flex-1 min-w-0 font-mono text-[11px] break-all text-slate-800 dark:text-slate-200';
+    // The plaintext is set via textContent (never innerHTML). Hidden by default so a
+    // freshly minted secret isn't left exposed on screen; reveal to read it.
+    let hidden = true;
+    const mask = '•'.repeat(24);
+    const render = () => { val.textContent = hidden ? mask : key; };
+    render();
+
+    const keyBtnClass = 'shrink-0 px-2 py-1 text-[11px] font-medium border border-emerald-300 dark:border-emerald-700 rounded-md text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40';
+
+    const toggle = document.createElement('button');
+    toggle.className = keyBtnClass;
+    toggle.textContent = 'Show';
+    toggle.addEventListener('click', () => {
+        hidden = !hidden;
+        toggle.textContent = hidden ? 'Show' : 'Hide';
+        render();
+    });
+
+    const copy = document.createElement('button');
+    copy.className = keyBtnClass;
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', async () => {
+        const done = (label) => { copy.textContent = label; setTimeout(() => { copy.textContent = 'Copy'; }, 1500); };
+        try {
+            await navigator.clipboard.writeText(key);  // copies the real key even while masked
+            done('Copied!');
+        } catch (e) {
+            // Fallback (e.g. non-secure context): reveal + select so the user can copy manually.
+            hidden = false; toggle.textContent = 'Hide'; render();
+            const range = document.createRange();
+            range.selectNodeContents(val);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            done('Selected');
+        }
+    });
+
+    row.appendChild(val);
+    row.appendChild(toggle);
+    row.appendChild(copy);
+    box.appendChild(row);
+    card.appendChild(box);
+}
+
+async function setAccountDisabled(userId, disabled) {
+    const action = disabled ? 'disable' : 'enable';
+    const res = await authedFetch(`/admin/users/${userId}/${action}`, { method: 'POST' });
+    if (res.ok) loadAccounts();
+    else showAdminError(`Could not ${action} account.`);
+}
+
+async function revokeKey(tokenHash, userId, container) {
+    const res = await authedFetch(`/admin/keys/${tokenHash}`, { method: 'DELETE' });
+    if (res.ok || res.status === 404) loadKeys(userId, container);
+    else showAdminError('Could not revoke key.');
+}
+
+if (createAccountForm) {
+    createAccountForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const username = newAccountUsername.value.trim();
+        if (username) createAccount(username);
+    });
+}
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {

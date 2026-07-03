@@ -185,6 +185,11 @@ def get_memory_manager() -> MemoryManager:
     Returns:
         Initialized memory manager
     """
-    # Only an in-memory backend ships today. To add file/redis persistence,
-    # implement the MemoryStorage interface and select it here.
+    # Select the backend by memory_storage_type. SqliteMemoryStorage is imported
+    # lazily so the default path never requires aiosqlite (the [auth] extra).
+    settings = get_settings()
+    if settings.memory_storage_type == "sqlite":
+        from src.memory.sqlite_storage import SqliteMemoryStorage
+
+        return MemoryManager(SqliteMemoryStorage(settings.database_path))
     return MemoryManager(InMemoryStorage())

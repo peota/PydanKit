@@ -9,7 +9,8 @@ A minimal, well-structured skeleton for building AI agents with [Pydantic AI](ht
 ## ✨ Features
 
 - 🤖 **Type-safe agents** with Pydantic AI (plain-text output by default; structured output opt-in)
-- 💬 **Conversation memory** - context within a run (in-memory; ephemeral, lost on restart)
+- 💬 **Conversation memory** - in-memory by default, or durable SQLite (shared across workers)
+- 🔐 **Authentication** - optional per-user auth with data isolation (SQLite; login + API keys)
 - 🎯 **Interactive setup wizard** - customize for your use case with `/setup-agent`
 - 🚀 **FastAPI dashboard** - web UI and REST API (optional)
 - 🔌 **Tool framework** - easy to add custom capabilities
@@ -46,6 +47,16 @@ pip install -e ".[api]"
 python -m src.main serve
 # Open http://localhost:8000
 ```
+
+**Authentication is on by default.** The dashboard shows a login screen, so create
+an account before signing in (the login page also shows this command):
+
+```bash
+python -m src.main users --add <name> --admin   # you'll be prompted for a password
+```
+
+Prefer to run open (no login)? Set `AUTH_ENABLED=false` in `.env`. See
+[Authentication](#-authentication) below.
 
 That's it! The agent remembers your conversations automatically.
 
@@ -110,14 +121,17 @@ MEMORY_ENABLED=true          # Default: true
 MEMORY_MAX_MESSAGES=100      # Keep last N messages
 ```
 
-**API usage:**
+**API usage** (with auth enabled, pass a per-user API key — identity comes from the
+credential, not the request body):
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello!", "user_id": "alice"}'
+  -H "X-API-Key: <key from: python -m src.main apikey --issue alice>" \
+  -d '{"prompt": "Hello!"}'
 ```
 
-Sessions are automatically created per `user_id`. See [CLAUDE.md](CLAUDE.md) for advanced memory features.
+With `AUTH_ENABLED=false`, drop the key and pass a `session_id` for continuity.
+Each authenticated user gets their own session. See [CLAUDE.md](CLAUDE.md) for advanced memory features.
 
 ## 🌐 REST API & Dashboard
 
@@ -138,6 +152,51 @@ open http://localhost:8000
 - `GET /sessions` - List conversation sessions
 - `GET /docs` - Full API documentation
 
+## 🔐 Authentication
+
+Per-user auth with a local SQLite store ([ADR 0001](docs/adr/0001-authentication.md)).
+Humans sign in on the dashboard (HttpOnly session cookie); programs send a per-user
+API key. Each user only sees their own conversations.
+
+**Create the first user** (there is no self-signup — accounts are admin-created):
+
+```bash
+python -m src.main users --add alice --admin   # prompts for a password
+python -m src.main users --list
+python -m src.main users --disable alice        # or --enable
+python -m src.main apikey --issue alice          # per-user API key (shown once)
+```
+
+The CLI is a trusted admin shell — it needs no login. Use it to bootstrap the first
+account, then sign in on the dashboard.
+
+**Admin panel (no shell needed in prod).** Signed-in admins get a **Manage users & keys**
+panel in the dashboard ([ADR 0002](docs/adr/0002-admin-ui-service-accounts.md)) to
+create **service accounts** (passwordless, API-only) and issue/list/revoke their API
+keys — so you can provision credentials on a cloud host without CLI access. Admin
+rights are never granted from the UI (only via env-seed/CLI).
+
+**Bootstrap without a shell.** For cloud deploys where the CLI isn't reachable, seed
+the first admin from the environment — created on startup if no admin exists:
+```bash
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me-then-rotate
+```
+
+**Configure in `.env`:**
+```bash
+AUTH_ENABLED=true              # default: true. Set false to run open (no login)
+DATABASE_PATH=pydankit.db      # users, tokens, and (optional) durable memory
+SESSION_TTL_DAYS=7             # dashboard session lifetime (sliding)
+SESSION_COOKIE_SECURE=false    # set true when served over HTTPS
+LOGIN_MAX_ATTEMPTS=5           # brute-force lockout threshold (per username)
+ADMIN_USERNAME=               # optional: env-seed the first admin on boot
+ADMIN_PASSWORD=               # (rotate/clear after first login)
+```
+
+> **Note:** the CLI `chat`/`interactive` commands run locally and are **not**
+> authenticated by design (whoever runs them owns the box). Auth protects the API.
+
 ## 📁 Project Structure
 
 ```
@@ -146,7 +205,8 @@ src/
 ├── tools.py         # Your custom tools
 ├── models.py        # Output schemas
 ├── config.py        # Settings
-├── memory/          # Memory system
+├── memory/          # Memory system (in-memory + SQLite backends)
+├── auth/            # Authentication (users, tokens, resolver)
 └── api.py           # REST API (optional)
 
 .claude/

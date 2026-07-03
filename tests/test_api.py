@@ -7,15 +7,22 @@ import pytest
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     pytest.importorskip("fastapi")
+    # These are auth-agnostic plumbing checks; run them with auth off so /info is
+    # reachable without a login. (Authed behavior is covered by test_auth_api.py.)
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    from src.config import get_settings
+
+    get_settings.cache_clear()
     try:
         from fastapi.testclient import TestClient
 
         from src.api import app
     except Exception as e:  # e.g. incompatible starlette in a dirty env
         pytest.skip(f"API dependencies unavailable: {e}")
-    return TestClient(app)
+    yield TestClient(app)
+    get_settings.cache_clear()
 
 
 def test_health(client):
