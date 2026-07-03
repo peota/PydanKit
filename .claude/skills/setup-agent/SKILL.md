@@ -23,6 +23,11 @@ anti-patterns. Do not restate or contradict it. Key points that shape this wizar
 - **Register tools** by adding the function to the `TOOLS` list in `agent.py` (not via
   scattered `agent.tool(...)` calls).
 - **Never remove `usage_limits`** from the run.
+- **Auth is on by default** (`AUTH_ENABLED=true`; ADR 0001). Identity comes from the
+  authenticated credential, **never** a request-body `user_id`. If a tool you add needs
+  the caller's identity, read it from the injected deps — do not add a `user_id` field to
+  the request or a second auth gate. The CLI is an unauthenticated trusted admin shell **by
+  design**; don't add a login to it.
 - **Definition of done:** `ruff check src tests` + `ruff format src tests` clean, `pytest`
   green, a `TestModel` test for each new tool, and an eval case for behavior changes.
 
@@ -65,7 +70,9 @@ replies conversationally, skip the model and keep `output_type=str`.
 1. `ruff check src tests` + `ruff format src tests` are clean
 2. `pytest` is green, including a new `TestModel` test for each tool you added
 3. Agent initializes and tools are registered (in the `TOOLS` list)
-4. Run a sample query if a provider key is configured
+4. Run a sample query if a provider key is configured (use the CLI —
+   `python -m src.main chat "..."` — which is unauthenticated by design; the API and
+   dashboard require a user since auth is on by default, or set `AUTH_ENABLED=false`)
 5. Provide troubleshooting steps if issues found
 
 **Phase 5: Next Steps**
