@@ -1,4 +1,4 @@
-"""SQLAlchemy-Core conversation memory: durable, SQLite or Postgres (ADR 0001/0003).
+"""SQLAlchemy-Core conversation memory: durable, SQLite or Postgres.
 
 Selected by ``memory_storage_type`` in ``("sql", "sqlite")`` and imported lazily from
 ``get_memory_manager`` so the default in-memory path never needs SQLAlchemy. Runs on

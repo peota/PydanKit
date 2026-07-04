@@ -1,4 +1,4 @@
-"""Integration tests for auth-enabled API behavior (ADR 0001, Phase 3).
+"""Integration tests for auth-enabled API behavior.
 
 Boots the app with AUTH_ENABLED=true against a temp SQLite DB and proves the
 contract: unauthenticated calls are rejected, and an authenticated user can only
@@ -196,7 +196,7 @@ def test_logout_revokes_session(auth_client):
     assert client.get("/sessions").status_code == 401
 
 
-# ---- admin panel (ADR 0002) ---------------------------------------------------
+# ---- admin panel ---------------------------------------------------
 
 CSRF = {"X-Requested-With": "fetch"}
 

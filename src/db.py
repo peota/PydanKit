@@ -3,7 +3,7 @@
 A single async engine, selected by ``DATABASE_URL``, backs both the default SQLite
 (zero-config, file-based — light/local use) and PostgreSQL
 (``postgresql+asyncpg://…`` — cloud / multi-instance). Tables are defined once here
-and created on demand via :func:`ensure_schema` — no migrations (see ADR 0003);
+and created on demand via :func:`ensure_schema` — no migrations;
 evolve with Alembic when a real deployment needs schema changes.
 
 Boolean-ish columns are stored as ``Integer`` (0/1) so the same ``= 1`` comparisons

@@ -1,4 +1,4 @@
-"""Password hashing with bcrypt (ADR 0001).
+"""Password hashing with bcrypt.
 
 bcrypt operates on the first 72 bytes of its input and ignores the rest. We
 truncate explicitly so a long passphrase can't create a false sense of extra

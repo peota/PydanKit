@@ -7,7 +7,7 @@ filesystem questions.
 
 The design is a *smart ``cp .env.example .env``*: every non-secret variable is
 written correct for the chosen scenario, and only the one relevant provider key is
-emitted as a labelled blank for the user to fill. See docs/init-command-spec.md.
+emitted as a labelled blank for the user to fill.
 """
 
 from __future__ import annotations

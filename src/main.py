@@ -174,7 +174,7 @@ def init() -> None:
 
     Asks a few questions and writes every non-secret variable already correct for the
     deployment you're targeting. It never collects your API key (paste that into the
-    one labelled slot yourself); see docs/init-command-spec.md.
+    one labelled slot yourself).
     """
     import shutil
     import subprocess
@@ -334,7 +334,7 @@ def users(
 ) -> None:
     """Manage user accounts.
 
-    The CLI is a trusted admin shell (ADR 0001): it needs no login. Use ``--add``
+    The CLI is a trusted admin shell: it needs no login. Use ``--add``
     to bootstrap the first admin on a fresh database.
     """
     from src.auth.db import InvalidUsernameError, UsernameTakenError

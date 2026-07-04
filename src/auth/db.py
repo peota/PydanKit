@@ -1,9 +1,9 @@
-"""SQLAlchemy-Core auth store: users, tokens, login-attempt throttle (ADR 0001).
+"""SQLAlchemy-Core auth store: users, tokens, login-attempt throttle.
 
 Async access over a single engine chosen by ``DATABASE_URL`` (see ``src/db.py``):
 SQLite by default, PostgreSQL for cloud / multi-instance. The same code runs on both
 dialects — SQLAlchemy renders the placeholder, ``RETURNING`` and boolean differences.
-Tables are created on demand via ``ensure_schema`` (ADR 0001/0003: no migrations).
+Tables are created on demand via ``ensure_schema`` (no migrations).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ TokenKind = Literal["session", "api_key"]
 
 # Sentinel stored as a service account's password_hash. It is not a valid bcrypt
 # hash, so verify_password always fails for it — service accounts can hold API keys
-# but can never log in with a password (ADR 0002).
+# but can never log in with a password.
 SERVICE_PASSWORD_SENTINEL = "!"
 
 
@@ -39,7 +39,7 @@ class User:
     is_admin: bool
     disabled: bool
     created_at: float
-    # True for a passwordless service account (ADR 0002) — holds API keys, can't log in.
+    # True for a passwordless service account — holds API keys, can't log in.
     is_service: bool = False
 
 
@@ -79,7 +79,7 @@ _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 def _validate_username(username: str) -> None:
     """Usernames must be non-empty and colon-free (safe charset) so a session id
-    ``user:<name>:<thread>`` parses unambiguously back to its owner (ADR 0001/0003)."""
+    ``user:<name>:<thread>`` parses unambiguously back to its owner."""
     if not _USERNAME_RE.fullmatch(username):
         raise InvalidUsernameError(
             f"Invalid username {username!r}: use letters, digits, '_', '.', or '-'."
@@ -146,7 +146,7 @@ class AuthStore:
         )
 
     async def create_service_account(self, username: str) -> User:
-        """Create a passwordless, non-admin service account (ADR 0002).
+        """Create a passwordless, non-admin service account.
 
         Holds API keys but can never log in (sentinel password hash). Raises
         UsernameTakenError on a duplicate username.

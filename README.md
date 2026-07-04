@@ -4,14 +4,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic%20AI-powered-green.svg)](https://ai.pydantic.dev/)
 
-A minimal, well-structured skeleton for building AI agents with [Pydantic AI](https://ai.pydantic.dev/). Plain-text output by default (structured output is an opt-in example), with conversation memory and an optional REST API + dashboard.
+A minimal, well-structured skeleton for building AI agents with [Pydantic AI](https://ai.pydantic.dev/), with conversation memory and an optional REST API + dashboard.
 
 - 🤖 **Type-safe agents** — plain text by default, structured output opt-in
 - 💬 **Conversation memory** — in-memory, or durable SQLite/Postgres
 - 🔐 **Optional per-user auth** — login + API keys, data isolation
 - 🚀 **FastAPI dashboard + REST API** (optional)
 - 🧪 **Offline tests** (`TestModel`) + a Pydantic Evals example
-- 🐳 **Docker** + a [verified deploy guide](docs/deployment.md)
+- 🐳 **Docker** — ready to build and run
 
 ## Quick start
 
@@ -77,7 +77,7 @@ python -m src.main users --add alice --admin
 python -m src.main apikey --issue alice          # per-user API key, shown once
 ```
 
-The CLI is a trusted admin shell — it needs no login. Service accounts, admin panel, and shell-less bootstrap are covered in [CLAUDE.md](CLAUDE.md) / [ADR 0001](docs/adr/0001-authentication.md). CLI `chat`/`interactive` are local and unauthenticated by design; auth protects the API.
+The CLI is a trusted admin shell — it needs no login. Service accounts, admin panel, and shell-less bootstrap are covered in [CLAUDE.md](CLAUDE.md). CLI `chat`/`interactive` are local and unauthenticated by design; auth protects the API.
 
 ## REST API
 
@@ -100,11 +100,27 @@ docker run --env-file .env my-agent chat "Hello"
 docker run --env-file .env -p 8000:8000 my-agent serve --host 0.0.0.0
 ```
 
+## Before you deploy
+
+A few things the template intentionally leaves to you — quick to set, easy to forget:
+
+- **Cap your spend at the provider.** The agent's only built-in guardrail is
+  `AGENT_REQUEST_LIMIT` (tool-calls per run) — there is **no token budget or per-user rate
+  limit** on `/chat/stream`. For a shared API key, set a hard monthly spend limit in your
+  OpenAI/Anthropic dashboard. It's the backstop for a leaked key or a runaway client loop,
+  neither of which "trusting your team" covers.
+- **Turn on TLS + secure cookies.** Behind HTTPS, set `SESSION_COOKIE_SECURE=true` and set
+  `CORS_ORIGINS` to your real origin (never `*` — credentials are on).
+- **Schema changes aren't auto-migrated.** Tables are created on demand; there are no
+  migrations by design. Pulling a
+  template version that changes the auth/memory schema will **not** migrate your existing
+  SQLite/Postgres data — back up your database before upgrading, or expect to recreate
+  accounts and conversation memory. Adopt Alembic if you need durable, evolving schemas.
+
 ## Docs
 
 - **[AGENTS.md](AGENTS.md)** — how to build on PydanKit (decision rules, definition of done); read by coding agents
 - **[CLAUDE.md](CLAUDE.md)** — architecture, streaming, memory, and auth internals
-- **[docs/deployment.md](docs/deployment.md)** — verified cloud deploy guide
 - **[Pydantic AI](https://ai.pydantic.dev/)** — framework docs
 
 MIT License — see [LICENSE](LICENSE).

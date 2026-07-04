@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # to start with a wildcard origin (it would leak the session cookie cross-site).
     cors_origins: list[str] = ["http://localhost:8000"]
     # Optional API key. When set, the API requires an "X-API-Key" header matching this value.
-    # Legacy single-shared-secret gate. Superseded by per-user auth (see ADR 0001) when
+    # Legacy single-shared-secret gate. Superseded by per-user auth when
     # AUTH_ENABLED=true; kept for machine-to-machine convenience.
     api_key: str | None = None
     # Expose interactive docs (/docs, /redoc, /openapi.json). None (default) follows
@@ -52,11 +52,11 @@ class Settings(BaseSettings):
     # true/false to force. Resolved by `docs_ui_enabled`.
     docs_enabled: bool | None = None
 
-    # Authentication (ADR 0001). On by default: a fresh clone requires creating a
+    # Authentication. On by default: a fresh clone requires creating a
     # user before signing in to the dashboard (the login screen shows the command:
     # `python -m src.main users --add <name> --admin`). Set AUTH_ENABLED=false to run
     # open, in which case the API is unprotected and user_id falls back to the
-    # request/anonymous value. (ADR 0001 recommends false; the shipped default is true.)
+    # request/anonymous value. (the shipped default is true.)
     auth_enabled: bool = True
     # Single SQLite database for users, tokens, and (optionally) conversation memory.
     # Legacy setting: kept as a back-compat alias. When DATABASE_URL is unset, a SQLite
@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     #   postgresql+asyncpg://user:pass@host/db     (cloud / multi-instance)
     # Leave unset to fall back to a SQLite URL derived from DATABASE_PATH above.
     database_url: str | None = None
-    # First-admin bootstrap for shell-less deploys (ADR 0002): if auth is on and no
+    # First-admin bootstrap for shell-less deploys: if auth is on and no
     # admin exists yet, an admin with these credentials is created on startup. Leave
     # unset to skip. Rotate/clear the password after first login.
     admin_username: str | None = None

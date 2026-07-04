@@ -42,7 +42,7 @@ smaller change and say what you deliberately left out.
   `[auth]`/`[api]` extra). For other backends, implement the `MemoryStorage`
   interface and select it in `get_memory_manager`. Do not hack persistence elsewhere.
 - **Auth.** On by default (`AUTH_ENABLED=true`; set false to run open). Identity
-  (ADR 0001) comes from the credential, never the request body, and every data route
+  comes from the credential, never the request body, and every data route
   scopes to the caller. Don't re-introduce a client-supplied `user_id`, and don't add
   a second parallel auth gate — extend the one resolver (`src/auth/dependencies.py`).
 - **Providers.** The template is provider-agnostic. Switch models via `MODEL_NAME`
@@ -79,24 +79,20 @@ python -m src.main chat "..."    # run the agent
 python -m src.main serve         # API + dashboard (needs: pip install -e ".[api]")
 ```
 
-## Decision records (ADRs)
+## Standing invariants (don't regress these)
 
-Significant, hard-to-reverse design decisions are recorded in [`docs/adr/`](docs/adr/).
-Read the relevant ADR before touching the area it covers, and add a new one
-(don't silently diverge) when you make a decision of similar weight.
+Hard-won design rules — keep them when working in the area they cover:
 
-- [ADR 0001 — Authentication & multi-user data isolation](docs/adr/0001-authentication.md)
-  *(Implemented.)* Standing invariants: **the CLI (`python -m src.main`) is an
-  unauthenticated, trusted admin shell by design** — do not "harden" it with a
-  login; `user_id` comes from the authenticated identity, never the request body;
-  and agent output must stay escaped in the dashboard (no markdown-to-HTML without
-  sanitization) — that's the XSS backstop for the session cookie.
-- [ADR 0002 — Admin UI for service accounts & keys](docs/adr/0002-admin-ui-service-accounts.md)
-  *(Implemented; amends 0001.)* Admin-only `/admin/*` endpoints + dashboard panel to
+- **Auth & isolation.** The CLI (`python -m src.main`) is an unauthenticated, trusted
+  admin shell **by design** — do not "harden" it with a login. `user_id` comes from the
+  authenticated identity, never the request body. Agent output rendered in the dashboard
+  must be **sanitized** (markdown-to-HTML only through DOMPurify) — that's the XSS backstop
+  for the session cookie.
+- **Admin UI & service accounts.** Admin-only `/admin/*` endpoints + a dashboard panel
   manage passwordless service accounts and their API keys. Invariants: **the UI never
-  grants admin** (no self-propagating admin keys), first admin is **env-seeded**
-  (no public setup endpoint — race-to-setup takeover), and admin secrets render via
-  `textContent`, never `innerHTML`. No audit trail in v1 (documented gap).
+  grants admin** (no self-propagating admin keys), the first admin is **env-seeded**
+  (no public setup endpoint — avoids race-to-setup takeover), and admin secrets render via
+  `textContent`, never `innerHTML`. No audit trail yet (known gap).
 
 ## Anti-patterns (do NOT reintroduce these — they've all bitten this repo)
 

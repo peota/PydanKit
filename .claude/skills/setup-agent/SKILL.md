@@ -23,7 +23,7 @@ anti-patterns. Do not restate or contradict it. Key points that shape this wizar
 - **Register tools** by adding the function to the `TOOLS` list in `agent.py` (not via
   scattered `agent.tool(...)` calls).
 - **Never remove `usage_limits`** from the run.
-- **Auth is on by default** (`AUTH_ENABLED=true`; ADR 0001). Identity comes from the
+- **Auth is on by default** (`AUTH_ENABLED=true`). Identity comes from the
   authenticated credential, **never** a request-body `user_id`. If a tool you add needs
   the caller's identity, read it from the injected deps — do not add a `user_id` field to
   the request or a second auth gate. The CLI is an unauthenticated trusted admin shell **by

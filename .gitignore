@@ -64,3 +64,6 @@ Thumbs.db
 
 # Local example agents built from the template (not part of the template itself)
 examples/
+
+# Internal docs / ADRs — kept locally for development, not published
+docs/

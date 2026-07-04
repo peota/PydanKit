@@ -80,7 +80,7 @@ returns **plain text by default**; structured output is an opt-in example.
 **API security defaults:**
 - CORS defaults to a localhost allowlist via `CORS_ORIGINS` (not `*`). With auth on, `allow_credentials=True`, so `CORS_ORIGINS` must never be `*`.
 - Interactive docs (`/docs`, `/redoc`, `/openapi.json`) are **off in production by default**: `DOCS_ENABLED` unset follows `DEBUG` (on in dev, off in prod); set it `true`/`false` to force. Resolved by `Settings.docs_ui_enabled`.
-- Per-user authentication is **on by default** (`AUTH_ENABLED=true`); set it `false` to run open. See "Authentication" below and [ADR 0001](docs/adr/0001-authentication.md).
+- Per-user authentication is **on by default** (`AUTH_ENABLED=true`); set it `false` to run open. See "Authentication" below.
 - Legacy `API_KEY` gate: when `AUTH_ENABLED=false`, setting `API_KEY` still requires a matching `X-API-Key` header (now enforced inside `get_current_user`, `src/auth/dependencies.py`). When auth is on, per-user credentials replace it.
 
 ## Extending
@@ -246,7 +246,7 @@ Two backends ship: `InMemoryStorage` (default) and `SqlMemoryStorage`
 
 ## Authentication
 
-Per-user auth with SQLite (ADR 0001). **On by default** — a fresh clone shows a login
+Per-user auth with SQLite. **On by default** — a fresh clone shows a login
 screen, so create a user first (set `AUTH_ENABLED=false` to run open instead).
 
 ```bash
@@ -264,7 +264,7 @@ python -m src.main apikey --issue alice          # per-user API key for programs
 - **Isolation:** `user_id` is *not* in the request body; identity comes from the
   credential, and every data route scopes to the caller. The CLI is a trusted,
   unauthenticated admin shell **by design** — do not add a login to it.
-- **Admin panel ([ADR 0002](docs/adr/0002-admin-ui-service-accounts.md)):** admins get
+- **Admin panel:** admins get
   `/admin/*` routes (behind `require_admin`, 404 when auth is off) and a dashboard panel
   to create **passwordless service accounts** and issue/list/revoke their API keys.
   UI-created accounts are **never admin**; admin accounts can't be managed from the UI.

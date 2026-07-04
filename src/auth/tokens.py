@@ -1,4 +1,4 @@
-"""Opaque token generation and hashing (ADR 0001).
+"""Opaque token generation and hashing.
 
 Session cookies and per-user API keys are the same primitive: a high-entropy
 random string handed to the client, stored only as its SHA-256 hash. Because the

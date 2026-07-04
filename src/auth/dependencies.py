@@ -1,4 +1,4 @@
-"""FastAPI auth dependencies: one resolver, two doors (ADR 0001, Phase 3).
+"""FastAPI auth dependencies: one resolver, two doors.
 
 ``get_current_user`` accepts a credential from either an HttpOnly session cookie
 (humans) or an ``Authorization: Bearer`` / ``X-API-Key`` header (programs), resolves
@@ -100,7 +100,7 @@ async def get_current_user(
 
 
 async def require_admin(user: User | None = Depends(get_current_user)) -> User:
-    """Gate admin-only routes (ADR 0002).
+    """Gate admin-only routes.
 
     404 when auth is disabled (no admin identity exists, so the feature is
     unavailable). Otherwise the caller must be an authenticated admin: 401 for no

@@ -1,4 +1,4 @@
-"""Tests for SqlMemoryStorage (ADR 0001, Phase 2) — offline, no API key.
+"""Tests for SqlMemoryStorage — offline, no API key.
 
 Requires the ``[auth]`` extra (aiosqlite).
 """

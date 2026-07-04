@@ -1,4 +1,4 @@
-"""Unit tests for the auth core (ADR 0001, Phase 1) — offline, no API key.
+"""Unit tests for the auth core — offline, no API key.
 
 Requires the ``[auth]`` extra (aiosqlite, bcrypt).
 """

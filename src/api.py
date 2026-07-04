@@ -66,7 +66,7 @@ def sanitize_error(e: Exception, context: str = "request") -> str:
 
 @asynccontextmanager
 async def _lifespan(_app: "FastAPI"):
-    """Seed the first admin from the environment on a shell-less deploy (ADR 0002).
+    """Seed the first admin from the environment on a shell-less deploy.
 
     Only runs when auth is on, ADMIN_USERNAME/ADMIN_PASSWORD are set, and no admin
     exists yet. Idempotent — a no-op once an admin is present.
@@ -155,7 +155,7 @@ async def _no_cache_dashboard(request, call_next):
 class ChatRequest(BaseModel):
     """Request body for chat endpoint.
 
-    ``user_id`` is intentionally absent (ADR 0001): when auth is enabled the caller's
+    ``user_id`` is intentionally absent: when auth is enabled the caller's
     identity comes from their credential, never the request body. When auth is
     disabled, ``session_id`` provides conversation continuity as before.
     """
@@ -195,7 +195,7 @@ def _deps_for(user: User | None, request: ChatRequest) -> AgentDeps:
 
     Authenticated: sessions are namespaced under the caller — ``user:<name>`` (the
     default thread) or ``user:<name>:<session_id>`` for a specific one. The client picks
-    the thread but can never escape its own namespace (ADR 0001 isolation).
+    the thread but can never escape its own namespace.
     Anonymous (auth off): the request's session_id drives continuity as before.
     """
     if user is not None:
@@ -316,7 +316,7 @@ async def login(body: LoginRequest, response: Response) -> LoginResponse:
     """Verify a password and set an HttpOnly session cookie.
 
     Only meaningful when AUTH_ENABLED is true. Applies a per-username brute-force
-    lockout (ADR 0001).
+    lockout.
     """
     if not settings.auth_enabled:
         raise HTTPException(status_code=400, detail="Authentication is disabled")
@@ -530,7 +530,7 @@ async def memory_stats(user: User | None = Depends(get_current_user)) -> MemoryS
 
 
 # ---------------------------------------------------------------------------
-# Admin: service accounts & API keys (ADR 0002). All routes require an admin;
+# Admin: service accounts & API keys. All routes require an admin;
 # require_admin returns 404 when auth is disabled (no admin identity exists).
 # ---------------------------------------------------------------------------
 
@@ -617,7 +617,7 @@ async def _require_managed_user(user_id: int) -> User:
 
 
 async def _require_non_admin_user(user_id: int) -> User:
-    """Load a user for admin MUTATIONS, rejecting admin accounts (ADR 0002).
+    """Load a user for admin MUTATIONS, rejecting admin accounts.
 
     Admin accounts are never managed from the UI: issuing an admin an API key would
     mint a non-expiring, admin-privileged credential that bypasses the cookie/CSRF
