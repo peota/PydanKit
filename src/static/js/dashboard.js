@@ -459,25 +459,40 @@ function appendMessage(role, content) {
         ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-2xl rounded-tr-sm'
         : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-2xl rounded-tl-sm shadow-sm';
 
-    const messageContent = `
+    // User text stays literal (whitespace-pre-wrap); agent replies render as markdown.
+    const contentClass = isUser
+        ? 'message-content text-sm leading-relaxed whitespace-pre-wrap'
+        : 'message-content text-sm leading-relaxed';
+
+    messageDiv.innerHTML = `
         ${avatarHtml}
         <div class="max-w-[85%] md:max-w-[75%]">
             <div class="px-5 py-3.5 ${bubbleClass}">
-                <p class="text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(content)}</p>
+                <div class="${contentClass}"></div>
             </div>
         </div>
     `;
 
-    messageDiv.innerHTML = messageContent;
+    const contentEl = messageDiv.querySelector('.message-content');
+    if (isUser) {
+        contentEl.textContent = content;
+    } else {
+        renderMarkdown(contentEl, content);
+    }
 
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+// Render untrusted agent text as sanitized markdown. marked builds the HTML,
+// DOMPurify strips anything dangerous before it reaches innerHTML. If the CDN
+// libs failed to load, fall back to plain text so a reply never renders raw.
+function renderMarkdown(el, text) {
+    if (window.marked && window.DOMPurify) {
+        el.innerHTML = DOMPurify.sanitize(marked.parse(text, { breaks: true }));
+    } else {
+        el.textContent = text;
+    }
 }
 
 function setLoading(loading) {
@@ -545,23 +560,35 @@ async function sendMessage(prompt) {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        // Buffer partial input: an SSE frame (or even a single data: line) can be
+        // split across two reads. We only process complete frames (\n\n separated)
+        // and keep the remainder for the next iteration.
+        let buffer = '';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split('\n\n');
+            buffer = frames.pop();  // last element is the (possibly incomplete) tail
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
+            for (const frame of frames) {
+                for (const line of frame.split('\n')) {
+                    if (!line.startsWith('data: ')) continue;
                     const data = line.slice(6);
 
-                    if (data === '[DONE]') {
-                        break;
-                    }
+                    if (data === '[DONE]') continue;
 
-                    fullContent += data;
+                    // Payloads are JSON-encoded strings (so newlines survive the
+                    // frame). Fall back to the raw value if parsing ever fails.
+                    let delta;
+                    try {
+                        delta = JSON.parse(data);
+                    } catch {
+                        delta = data;
+                    }
+                    fullContent += delta;
 
                     // First real content: drop the snug ".thinking" state so the
                     // bubble expands to full message padding (via CSS).
@@ -571,7 +598,7 @@ async function sendMessage(prompt) {
                         if (bubble) bubble.classList.remove('thinking');
                     }
 
-                    contentElement.textContent = fullContent;
+                    renderMarkdown(contentElement, fullContent);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 }
             }
@@ -610,7 +637,7 @@ function createAgentMessagePlaceholder() {
         ${avatarHtml}
         <div class="max-w-[85%] md:max-w-[75%]">
             <div class="agent-bubble thinking ${bubbleClass}">
-                <p class="message-content text-sm leading-relaxed whitespace-pre-wrap">${typingIndicator}</p>
+                <div class="message-content text-sm leading-relaxed">${typingIndicator}</div>
             </div>
         </div>
     `;

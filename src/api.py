@@ -16,6 +16,7 @@ try:
 except ImportError:
     raise ImportError("FastAPI is not installed. Install it with: pip install -e '.[api]'")
 
+import json
 import logging
 from contextlib import asynccontextmanager
 
@@ -370,8 +371,10 @@ async def chat_stream(
             """Generate Server-Sent Events for streaming."""
             try:
                 async for chunk in run_agent_stream(request.prompt, deps):
-                    # Send each chunk as a data event
-                    yield f"data: {chunk}\n\n"
+                    # JSON-encode so a chunk containing newlines stays a single SSE
+                    # `data:` line (a raw newline would split the frame and the client
+                    # would drop the continuation). Client does JSON.parse to recover it.
+                    yield f"data: {json.dumps(chunk)}\n\n"
                 # Send completion signal
                 yield "data: [DONE]\n\n"
             except Exception as e:

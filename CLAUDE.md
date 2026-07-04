@@ -68,6 +68,8 @@ returns **plain text by default**; structured output is an opt-in example.
 - `/chat/stream` endpoint uses Server-Sent Events (SSE) for real-time streaming
 - `run_agent_stream()` in agent.py uses `result.stream_text(delta=True)` and yields each new text chunk directly (the default output is plain text)
 - Frontend uses `ReadableStream` API to consume SSE events in real-time
+- **Wire format:** each delta is sent as `data: {json.dumps(chunk)}` (a JSON-encoded string), so chunks containing newlines stay one SSE line; the client buffers frames and `JSON.parse`s each payload. Keep both sides in sync — sending a raw chunk again would let a newline split the frame and the client would drop the continuation.
+- The dashboard renders agent replies as **sanitized markdown** (`marked` + `DOMPurify` via CDN in `index.html`); `renderMarkdown()` in `dashboard.js` falls back to plain text if the libs fail to load. User messages stay literal text.
 - Note: if you switch `output_type` to a structured model, `stream_text()` no longer applies — use `result.stream_output()` and derive your own deltas
 
 **Testing:**
