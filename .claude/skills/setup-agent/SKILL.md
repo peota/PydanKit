@@ -31,6 +31,36 @@ anti-patterns. Do not restate or contradict it. Key points that shape this wizar
 - **Definition of done:** `ruff check src tests` + `ruff format src tests` clean, `pytest`
   green, a `TestModel` test for each new tool, and an eval case for behavior changes.
 
+### Deriving the run command from `.env` (do this before showing any "run it with" line)
+
+**Never default to the CLI.** Before you present validation smoke-tests (Phase 4) or the
+final "run it with" line (Phase 5), read the repo-root `.env` and pick the command that
+matches the setup the user actually chose during `init`:
+
+1. **Read `.env`** and note three things:
+   - `AUTH_ENABLED` (`true`/`false`, default treat missing as `true`)
+   - Whether this is a **server/dashboard** setup — signalled by `CORS_ORIGINS` being
+     present (the `init` wizard writes it only for the serve/dashboard scenario), and/or
+     the `[api]`/`[auth]` extras being installed.
+   - `MODEL_NAME` + whether the matching provider key is filled in (not a `sk-...PASTE`
+     placeholder).
+
+2. **Choose the run command:**
+   - **Server/dashboard + auth off** → `python -m src.main serve --port 8000`, then open
+     the dashboard at `http://localhost:8000/`. This is the primary way to use it — do
+     **not** lead with `chat`.
+   - **Server/dashboard + auth on** → first create a user
+     (`python -m src.main users --add <name> --admin`), then
+     `python -m src.main serve --port 8000` and log in at `http://localhost:8000/`.
+   - **CLI-only setup** (no `CORS_ORIGINS`, no api extra) → `python -m src.main chat "..."`
+     or `python -m src.main interactive`.
+
+3. Whatever the run mode, if a provider key is still a placeholder, remind the user to
+   paste it into `.env` first.
+
+The CLI (`python -m src.main chat`) always works as an unauthenticated smoke test, so you
+may still mention it *in addition* — but the headline command must match the `.env` setup.
+
 ### Your Workflow
 
 **Phase 1: Discovery**
@@ -70,14 +100,16 @@ replies conversationally, skip the model and keep `output_type=str`.
 1. `ruff check src tests` + `ruff format src tests` are clean
 2. `pytest` is green, including a new `TestModel` test for each tool you added
 3. Agent initializes and tools are registered (in the `TOOLS` list)
-4. Run a sample query if a provider key is configured (use the CLI —
-   `python -m src.main chat "..."` — which is unauthenticated by design; the API and
-   dashboard require a user since auth is on by default, or set `AUTH_ENABLED=false`)
+4. Run a sample query if a provider key is configured, using the command that matches the
+   user's `.env` (see "Deriving the run command from `.env`" above). The CLI
+   (`python -m src.main chat "..."`) is unauthenticated by design and always works as a
+   smoke test, but if the setup is serve/dashboard, verify that path too.
 5. Provide troubleshooting steps if issues found
 
 **Phase 5: Next Steps**
 1. Summarize what was customized
-2. Provide example commands to test
+2. Provide example commands to test — the headline "run it with" line **must** be derived
+   from `.env` (see "Deriving the run command from `.env`" above), not defaulted to the CLI
 3. Suggest next steps (adding tests, documentation, deployment)
 4. Offer to continue with additional customization
 
