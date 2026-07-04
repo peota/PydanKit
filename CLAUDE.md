@@ -20,6 +20,11 @@ ruff format src
 pytest
 # or: make test
 
+# First-time setup: interactively write a scenario-correct .env (a smart cp of
+# .env.example). Asks for AGENT_NAME + run mode / provider / storage / auth, then
+# offers to install the extras that choice needs (pip- and uv-aware). See src/installer.py.
+python -m src.main init
+
 # Run agent
 python -m src.main chat "Your prompt here"
 python -m src.main interactive
@@ -57,6 +62,7 @@ returns **plain text by default**; structured output is an opt-in example.
 - REST API (api.py): Optional FastAPI server with dashboard. Install with `pip install -e ".[api]"`.
 - Dashboard (static/index.html): Web UI served at `/` with status, tools list, and chat interface. Uses Tailwind CSS via CDN.
 - Agent metadata (agent.py): `get_agent_info()` returns model, tools, and config for the `/info` endpoint.
+- Branding (config.py): `AGENT_NAME` (default `PydanKit`) sets the API/Swagger title and is surfaced on the public `/health` payload; the dashboard reads it from `/health` to brand the header, browser tab, and System Status (so it shows pre-login).
 
 **Streaming:**
 - `/chat/stream` endpoint uses Server-Sent Events (SSE) for real-time streaming

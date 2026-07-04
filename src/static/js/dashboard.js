@@ -61,6 +61,8 @@ const statusText = document.getElementById('status-text');
 const statusBadge = document.getElementById('status-badge');
 const healthStatus = document.getElementById('health-status');
 const modelName = document.getElementById('model-name');
+const agentName = document.getElementById('agent-name');
+const appName = document.getElementById('app-name');
 const debugStatus = document.getElementById('debug-status');
 const logfireStatus = document.getElementById('logfire-status');
 const memoryStatus = document.getElementById('memory-status');
@@ -355,6 +357,13 @@ function updateStatusPanel(health) {
     // Update health status text
     healthStatus.textContent = isHealthy ? 'Online' : 'Offline';
     healthStatus.className = `text-sm font-medium ${isHealthy ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`;
+
+    // Update agent name / branding (from public /health, so it shows pre-login)
+    if (health.name) {
+        agentName.textContent = health.name;
+        appName.textContent = health.name;
+        document.title = health.name;
+    }
 
     // Update model name
     modelName.textContent = health.model;

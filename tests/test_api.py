@@ -31,6 +31,7 @@ def test_health(client):
     body = r.json()
     assert body["status"] == "healthy"
     assert body["version"]  # version is surfaced to the dashboard
+    assert body["name"]  # agent branding, drives the dashboard header pre-login
 
 
 def test_info_lists_tools(client):

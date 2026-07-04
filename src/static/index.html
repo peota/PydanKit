@@ -101,7 +101,7 @@
             <div class="w-8 h-8 bg-slate-900 dark:bg-slate-800 rounded-lg flex items-center justify-center shadow-sm p-1">
                 <img src="/static/assets/logo.svg" alt="Logo" class="w-5 h-5 brightness-0 invert" />
             </div>
-            <h1 class="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">PydanKit</h1>
+            <h1 id="app-name" class="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">PydanKit</h1>
         </div>
         
         <div class="flex items-center gap-2 md:gap-4">
@@ -160,6 +160,10 @@
                     <h2 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">System Status</h2>
                     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm space-y-3">
                         <div class="flex justify-between items-center">
+                            <span class="text-sm text-slate-600 dark:text-slate-300">Agent</span>
+                            <span id="agent-name" class="text-sm font-medium text-slate-900 dark:text-slate-100">--</span>
+                        </div>
+                        <div class="pt-3 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
                             <span class="text-sm text-slate-600 dark:text-slate-300">API Health</span>
                             <span id="health-status" class="text-sm font-medium text-slate-400 dark:text-slate-500">--</span>
                         </div>

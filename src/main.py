@@ -145,6 +145,185 @@ def _read_password() -> str:
     return password
 
 
+def _choose(label: str, options: list[tuple[str, str]], default: str | None = None) -> str:
+    """Prompt the user to pick one numbered option; return the chosen option's key.
+
+    Uses only Typer/click (no extra prompt dependency). ``options`` is a list of
+    ``(key, description)`` pairs; ``default`` is the key selected on a bare Enter.
+    """
+    typer.echo(f"\n{label}")
+    for i, (_key, desc) in enumerate(options, 1):
+        typer.echo(f"  {i}. {desc}")
+    keys = [k for k, _ in options]
+    default_index = str(keys.index(default) + 1) if default in keys else "1"
+    while True:
+        raw = typer.prompt("Enter number", default=default_index)
+        try:
+            idx = int(raw)
+        except ValueError:
+            typer.echo("Please enter a number.", err=True)
+            continue
+        if 1 <= idx <= len(options):
+            return keys[idx - 1]
+        typer.echo(f"Please enter a number between 1 and {len(options)}.", err=True)
+
+
+@app.command()
+def init() -> None:
+    """Interactively write a scenario-correct .env (a smart `cp .env.example .env`).
+
+    Asks a few questions and writes every non-secret variable already correct for the
+    deployment you're targeting. It never collects your API key (paste that into the
+    one labelled slot yourself); see docs/init-command-spec.md.
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    from src.installer import (
+        PROVIDERS,
+        InstallerAnswers,
+        build_env_content,
+        env_is_gitignored,
+        extra_install_command,
+        required_extras,
+    )
+
+    project_root = Path.cwd()
+    env_path = project_root / ".env"
+
+    typer.echo("PydanKit setup - a few questions to write a correct .env for your setup.")
+
+    # Step 0: never silently clobber an existing .env.
+    if env_path.exists():
+        action = _choose(
+            f"A .env already exists at {env_path}. What should I do?",
+            [
+                ("backup", "Back it up to .env.bak, then write a new one"),
+                ("overwrite", "Overwrite it (current contents are lost)"),
+                ("abort", "Abort and leave it untouched"),
+            ],
+            default="backup",
+        )
+        if action == "abort":
+            typer.echo("Aborted. Your .env was not changed.")
+            raise typer.Exit(0)
+        if action == "backup":
+            shutil.copy2(env_path, project_root / ".env.bak")
+            typer.echo("Backed up existing .env to .env.bak")
+
+    agent_name = typer.prompt(
+        "\nAgent name (branding shown on the dashboard and API title)", default="PydanKit"
+    ).strip() or "PydanKit"
+
+    run_mode = _choose(
+        "How will you run the agent?",
+        [
+            ("cli", "CLI only (chat / interactive in the terminal)"),
+            ("web", "Web dashboard + REST API (the `serve` command)"),
+        ],
+        default="cli",
+    )
+    provider = _choose(
+        "Which model provider?",
+        [(key, prov["label"]) for key, prov in PROVIDERS.items()],
+        default="openai",
+    )
+    persistence = _choose(
+        "Where should users, tokens and memory live?",
+        [
+            ("local", "Local SQLite file (zero-config, durable on this machine)"),
+            ("postgres", "Postgres (cloud / multi-instance; I'll leave a placeholder)"),
+        ],
+        default="local",
+    )
+    auth = _choose(
+        "Who can use the API?",
+        [
+            ("open", "Just me - no login (open API)"),
+            ("multi", "Multiple users - require login"),
+        ],
+        default="open",
+    )
+
+    answers = InstallerAnswers(
+        run_mode=run_mode,
+        provider=provider,
+        persistence=persistence,
+        auth=auth,
+        agent_name=agent_name,
+    )
+
+    # Step 4a: seed the first admin, but only for a multi-user web dashboard - and never
+    # write a password into a .env that git could commit.
+    if answers.needs_admin_seed:
+        if not env_is_gitignored(project_root):
+            typer.echo(
+                "Refusing to write an admin password: .env is not covered by .gitignore.\n"
+                "Add a `.env` line to .gitignore and re-run, or choose open mode.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        typer.echo("\nCreate the first admin (needed to log in to the dashboard).")
+        answers.admin_username = typer.prompt("Admin username")
+        answers.admin_password = _read_password()
+
+    env_path.write_text(build_env_content(answers), encoding="utf-8")
+    typer.echo(f"\nWrote {env_path}")
+
+    # Validate the file binds (parses and types check). It does NOT prove the key works -
+    # we never see the key - so a clean bind is the honest definition of "done" here.
+    try:
+        from src.config import Settings
+
+        Settings(_env_file=str(env_path))  # type: ignore[call-arg]
+    except Exception as e:  # pragma: no cover - defensive
+        typer.echo(f"Warning: the generated .env did not validate cleanly: {e}", err=True)
+
+    # Step 5: some scenarios need extras beyond the base install (API server, DB driver).
+    # Offer to install exactly the ones this choice needs and that aren't present yet -
+    # never install silently. Adapt to pip vs uv (uv venvs ship without pip).
+    import importlib.util
+    import shutil
+
+    has_pip = importlib.util.find_spec("pip") is not None
+    has_uv = shutil.which("uv") is not None
+
+    for extra, probe in required_extras(answers):
+        if importlib.util.find_spec(probe) is not None:
+            continue  # already installed
+        argv, hint = extra_install_command(
+            extra, python_executable=sys.executable, has_pip=has_pip, has_uv=has_uv
+        )
+        if argv is None:
+            typer.echo(f"\nThis setup needs the [{extra}] extra. Install it with:  {hint}")
+            continue
+        if typer.confirm(
+            f"\nThis setup needs the [{extra}] extra, which isn't installed. Install it now?",
+            default=True,
+        ):
+            typer.echo(f"Installing ({hint}) ...")
+            result = subprocess.run(argv, check=False)
+            if result.returncode != 0:
+                typer.echo(f"Install failed. Run it yourself when ready:  {hint}", err=True)
+        else:
+            typer.echo(f"Skipped. Install later with:  {hint}")
+
+    prov = PROVIDERS[provider]
+    typer.echo("\nDone. Next steps:")
+    typer.echo(f"  1. Open .env and paste your {prov['label']} API key after {prov['key_var']}=")
+    if answers.needs_admin_seed:
+        typer.echo("  2. Rotate or clear ADMIN_PASSWORD in .env after your first login.")
+    if answers.web:
+        typer.echo("  -> Start the server:  python -m src.main serve")
+    else:
+        typer.echo('  -> Try it:  python -m src.main chat "Hello"')
+    typer.echo(
+        "\nNote: I can't verify your key or model access here. If the first call fails, "
+        "check the key is valid and the model is available to your account."
+    )
+
+
 @app.command()
 def users(
     add: str | None = typer.Option(None, "--add", help="Create a user with this username"),

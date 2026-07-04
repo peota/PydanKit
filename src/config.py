@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Pick a model your account can access and verify it exists before shipping.
     model_name: str = "openai:gpt-4o"
 
+    # Cosmetic display name for this agent: shown on the dashboard, in the browser tab,
+    # and as the API/Swagger title. Purely branding; defaults to the kit name.
+    agent_name: str = "PydanKit"
+
     # Bound a single agent run so a misbehaving tool can't loop forever (cost/hang guard).
     agent_request_limit: int = 5
 

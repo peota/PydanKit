@@ -110,8 +110,8 @@ _OPENAPI_TAGS = [
     {"name": "Admin", "description": "Service accounts and API keys (admin only)."},
 ]
 app = FastAPI(
-    title="Pydantic AI Agent API",
-    description="REST API for the Pydantic AI Agent",
+    title=f"{settings.agent_name} API",
+    description=f"REST API for {settings.agent_name}",
     version=APP_VERSION,
     lifespan=_lifespan,
     openapi_tags=_OPENAPI_TAGS,
@@ -227,6 +227,7 @@ class HealthResponse(BaseModel):
     """Response body for health check."""
 
     status: str
+    name: str
     model: str
     version: str
 
@@ -277,7 +278,12 @@ async def dashboard() -> FileResponse:
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health_check() -> HealthResponse:
     """Health check endpoint."""
-    return HealthResponse(status="healthy", model=settings.model_name, version=APP_VERSION)
+    return HealthResponse(
+        status="healthy",
+        name=settings.agent_name,
+        model=settings.model_name,
+        version=APP_VERSION,
+    )
 
 
 @app.get("/info", response_model=InfoResponse, tags=["System"])
