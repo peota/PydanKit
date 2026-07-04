@@ -101,11 +101,20 @@ async def _lifespan(_app: "FastAPI"):
 _docs_urls: dict = (
     {} if settings.docs_ui_enabled else {"docs_url": None, "redoc_url": None, "openapi_url": None}
 )
+# Group endpoints into sections in the /docs UI (defines their order + descriptions).
+_OPENAPI_TAGS = [
+    {"name": "System", "description": "Dashboard, health, and agent metadata."},
+    {"name": "Auth", "description": "Login and logout (session cookie)."},
+    {"name": "Chat", "description": "Send prompts to the agent."},
+    {"name": "Sessions", "description": "Conversation sessions and memory."},
+    {"name": "Admin", "description": "Service accounts and API keys (admin only)."},
+]
 app = FastAPI(
     title="Pydantic AI Agent API",
     description="REST API for the Pydantic AI Agent",
     version=APP_VERSION,
     lifespan=_lifespan,
+    openapi_tags=_OPENAPI_TAGS,
     **_docs_urls,
 )
 
@@ -259,19 +268,19 @@ class SessionClearResponse(BaseModel):
     session_id: str
 
 
-@app.get("/", response_class=FileResponse)
+@app.get("/", response_class=FileResponse, tags=["System"])
 async def dashboard() -> FileResponse:
     """Serve the dashboard page."""
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health_check() -> HealthResponse:
     """Health check endpoint."""
     return HealthResponse(status="healthy", model=settings.model_name, version=APP_VERSION)
 
 
-@app.get("/info", response_model=InfoResponse)
+@app.get("/info", response_model=InfoResponse, tags=["System"])
 async def info(user: User | None = Depends(get_current_user)) -> InfoResponse:
     """Get agent configuration and metadata (auth-required when enabled)."""
     username = user.username if user else None
@@ -295,7 +304,7 @@ async def info(user: User | None = Depends(get_current_user)) -> InfoResponse:
         )
 
 
-@app.post("/auth/login", response_model=LoginResponse)
+@app.post("/auth/login", response_model=LoginResponse, tags=["Auth"])
 async def login(body: LoginRequest, response: Response) -> LoginResponse:
     """Verify a password and set an HttpOnly session cookie.
 
@@ -323,7 +332,7 @@ async def login(body: LoginRequest, response: Response) -> LoginResponse:
     return LoginResponse(username=user.username, is_admin=user.is_admin)
 
 
-@app.post("/auth/logout")
+@app.post("/auth/logout", tags=["Auth"])
 async def logout(request: Request, response: Response) -> dict[str, str]:
     """Revoke the current session token and clear the cookie."""
     token = request.cookies.get(SESSION_COOKIE)
@@ -333,7 +342,7 @@ async def logout(request: Request, response: Response) -> dict[str, str]:
     return {"status": "logged out"}
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(request: ChatRequest, user: User | None = Depends(get_current_user)) -> ChatResponse:
     """Send a prompt to the agent and get a response."""
     try:
@@ -343,7 +352,7 @@ async def chat(request: ChatRequest, user: User | None = Depends(get_current_use
         raise HTTPException(status_code=500, detail=sanitize_error(e, "chat"))
 
 
-@app.post("/chat/stream")
+@app.post("/chat/stream", tags=["Chat"])
 async def chat_stream(
     request: ChatRequest, user: User | None = Depends(get_current_user)
 ) -> StreamingResponse:
@@ -375,7 +384,7 @@ async def chat_stream(
         raise HTTPException(status_code=500, detail=sanitize_error(e, "chat stream"))
 
 
-@app.get("/sessions", response_model=SessionListResponse)
+@app.get("/sessions", response_model=SessionListResponse, tags=["Sessions"])
 async def list_sessions(
     user: User | None = Depends(get_current_user),
 ) -> SessionListResponse:
@@ -393,7 +402,7 @@ async def list_sessions(
         raise HTTPException(status_code=500, detail=sanitize_error(e, "list sessions"))
 
 
-@app.get("/sessions/{session_id}", response_model=SessionDetailResponse)
+@app.get("/sessions/{session_id}", response_model=SessionDetailResponse, tags=["Sessions"])
 async def get_session(
     session_id: str, user: User | None = Depends(get_current_user)
 ) -> SessionDetailResponse:
@@ -416,7 +425,7 @@ async def get_session(
         raise HTTPException(status_code=500, detail=sanitize_error(e, "get session"))
 
 
-@app.delete("/sessions/{session_id}", response_model=SessionClearResponse)
+@app.delete("/sessions/{session_id}", response_model=SessionClearResponse, tags=["Sessions"])
 async def clear_session(
     session_id: str, user: User | None = Depends(get_current_user)
 ) -> SessionClearResponse:
@@ -467,7 +476,11 @@ def _render_messages(history: list[ModelMessage]) -> list[SessionMessage]:
     return rendered
 
 
-@app.get("/sessions/{session_id}/messages", response_model=SessionMessagesResponse)
+@app.get(
+    "/sessions/{session_id}/messages",
+    response_model=SessionMessagesResponse,
+    tags=["Sessions"],
+)
 async def get_session_messages(
     session_id: str, user: User | None = Depends(get_current_user)
 ) -> SessionMessagesResponse:
@@ -487,7 +500,7 @@ async def get_session_messages(
         raise HTTPException(status_code=500, detail=sanitize_error(e, "get session messages"))
 
 
-@app.get("/memory/stats", response_model=MemoryStats)
+@app.get("/memory/stats", response_model=MemoryStats, tags=["Sessions"])
 async def memory_stats(user: User | None = Depends(get_current_user)) -> MemoryStats:
     """Get memory system statistics (scoped to the caller when authenticated)."""
     try:
@@ -564,7 +577,7 @@ def _to_admin_user(user: User) -> AdminUserResponse:
     )
 
 
-@app.post("/admin/users", response_model=AdminUserResponse, status_code=201)
+@app.post("/admin/users", response_model=AdminUserResponse, status_code=201, tags=["Admin"])
 async def admin_create_service_account(
     body: CreateServiceAccountRequest, _admin: User = Depends(require_admin)
 ) -> AdminUserResponse:
@@ -579,7 +592,7 @@ async def admin_create_service_account(
     return _to_admin_user(user)
 
 
-@app.get("/admin/users", response_model=list[AdminUserResponse])
+@app.get("/admin/users", response_model=list[AdminUserResponse], tags=["Admin"])
 async def admin_list_users(_admin: User = Depends(require_admin)) -> list[AdminUserResponse]:
     """List all accounts (admins, humans, and service accounts)."""
     users = await get_auth_store().list_users()
@@ -607,7 +620,12 @@ async def _require_non_admin_user(user_id: int) -> User:
     return user
 
 
-@app.post("/admin/users/{user_id}/keys", response_model=IssuedKeyResponse, status_code=201)
+@app.post(
+    "/admin/users/{user_id}/keys",
+    response_model=IssuedKeyResponse,
+    status_code=201,
+    tags=["Admin"],
+)
 async def admin_issue_key(
     user_id: int, body: IssueKeyRequest, _admin: User = Depends(require_admin)
 ) -> IssuedKeyResponse:
@@ -618,7 +636,7 @@ async def admin_issue_key(
     return IssuedKeyResponse(token_hash=hash_token(key), name=body.name, key=key)
 
 
-@app.get("/admin/users/{user_id}/keys", response_model=list[AdminKeyResponse])
+@app.get("/admin/users/{user_id}/keys", response_model=list[AdminKeyResponse], tags=["Admin"])
 async def admin_list_keys(
     user_id: int, _admin: User = Depends(require_admin)
 ) -> list[AdminKeyResponse]:
@@ -633,7 +651,7 @@ async def admin_list_keys(
     ]
 
 
-@app.delete("/admin/keys/{token_hash}", response_model=SessionClearResponse)
+@app.delete("/admin/keys/{token_hash}", response_model=SessionClearResponse, tags=["Admin"])
 async def admin_revoke_key(
     token_hash: str, _admin: User = Depends(require_admin)
 ) -> SessionClearResponse:
@@ -656,7 +674,7 @@ async def _set_disabled(user_id: int, disabled: bool) -> AdminUserResponse:
     return _to_admin_user(await store.get_user_by_id(user.id))
 
 
-@app.post("/admin/users/{user_id}/disable", response_model=AdminUserResponse)
+@app.post("/admin/users/{user_id}/disable", response_model=AdminUserResponse, tags=["Admin"])
 async def admin_disable_user(
     user_id: int, _admin: User = Depends(require_admin)
 ) -> AdminUserResponse:
@@ -664,7 +682,7 @@ async def admin_disable_user(
     return await _set_disabled(user_id, True)
 
 
-@app.post("/admin/users/{user_id}/enable", response_model=AdminUserResponse)
+@app.post("/admin/users/{user_id}/enable", response_model=AdminUserResponse, tags=["Admin"])
 async def admin_enable_user(
     user_id: int, _admin: User = Depends(require_admin)
 ) -> AdminUserResponse:
