@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Pydantic AI](https://img.shields.io/badge/Pydantic%20AI-powered-green.svg)](https://ai.pydantic.dev/)
 
-A minimal, well-structured skeleton for building AI agents with [Pydantic AI](https://ai.pydantic.dev/), with conversation memory and an optional REST API + dashboard.
+A minimal, well-structured skeleton for building and shipping AI agents with [Pydantic AI](https://ai.pydantic.dev/) — batteries included, from CLI to deployed API.
 
 - 🤖 **Type-safe agents** — plain text by default, structured output opt-in
 - 💬 **Conversation memory** — in-memory, or durable SQLite/Postgres
