@@ -96,11 +96,17 @@ async def _lifespan(_app: "FastAPI"):
     yield
 
 
+# Hide interactive docs (Swagger/ReDoc/openapi.json) unless enabled — off in prod by
+# default so the API surface (incl. /admin/*) isn't advertised. See docs_ui_enabled.
+_docs_urls: dict = (
+    {} if settings.docs_ui_enabled else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+)
 app = FastAPI(
     title="Pydantic AI Agent API",
     description="REST API for the Pydantic AI Agent",
     version=APP_VERSION,
     lifespan=_lifespan,
+    **_docs_urls,
 )
 
 # Configure CORS from settings (default is a localhost allowlist, not "*").

@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # Legacy single-shared-secret gate. Superseded by per-user auth (see ADR 0001) when
     # AUTH_ENABLED=true; kept for machine-to-machine convenience.
     api_key: str | None = None
+    # Expose interactive docs (/docs, /redoc, /openapi.json). None (default) follows
+    # DEBUG: on in dev, OFF in production so the API surface isn't advertised. Set
+    # true/false to force. Resolved by `docs_ui_enabled`.
+    docs_enabled: bool | None = None
 
     # Authentication (ADR 0001). On by default: a fresh clone requires creating a
     # user before signing in to the dashboard (the login screen shows the command:
@@ -109,6 +113,11 @@ class Settings(BaseSettings):
             return self.database_url
         # Forward slashes so a Windows path (C:\...) still forms a valid SQLite URL.
         return f"sqlite+aiosqlite:///{self.database_path.replace(chr(92), '/')}"
+
+    @property
+    def docs_ui_enabled(self) -> bool:
+        """Whether to serve Swagger/ReDoc/openapi.json. Defaults to DEBUG (off in prod)."""
+        return self.debug if self.docs_enabled is None else self.docs_enabled
 
 
 @lru_cache

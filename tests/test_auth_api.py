@@ -348,6 +348,48 @@ def test_wildcard_cors_refused_at_startup(monkeypatch):
         importlib.reload(api)
 
 
+def test_docs_hidden_in_production_by_default(monkeypatch):
+    """Swagger/ReDoc/openapi.json are off unless DEBUG or DOCS_ENABLED (no info leak)."""
+    monkeypatch.setenv("DEBUG", "false")
+    monkeypatch.delenv("DOCS_ENABLED", raising=False)
+    _clear_caches()
+    import importlib
+
+    import src.api as api
+
+    importlib.reload(api)
+    from fastapi.testclient import TestClient
+
+    try:
+        client = TestClient(api.app)
+        assert client.get("/openapi.json").status_code == 404
+        assert client.get("/docs").status_code == 404
+    finally:
+        monkeypatch.undo()
+        _clear_caches()
+        importlib.reload(api)
+
+
+def test_docs_enabled_when_opted_in(monkeypatch):
+    """DOCS_ENABLED=true exposes the docs even with DEBUG off."""
+    monkeypatch.setenv("DEBUG", "false")
+    monkeypatch.setenv("DOCS_ENABLED", "true")
+    _clear_caches()
+    import importlib
+
+    import src.api as api
+
+    importlib.reload(api)
+    from fastapi.testclient import TestClient
+
+    try:
+        assert TestClient(api.app).get("/openapi.json").status_code == 200
+    finally:
+        monkeypatch.undo()
+        _clear_caches()
+        importlib.reload(api)
+
+
 def test_env_seed_creates_first_admin(tmp_path, monkeypatch):
     """Lifespan seeds an admin from ADMIN_USERNAME/PASSWORD when none exists."""
     monkeypatch.setenv("AUTH_ENABLED", "true")

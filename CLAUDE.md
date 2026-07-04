@@ -71,6 +71,7 @@ returns **plain text by default**; structured output is an opt-in example.
 
 **API security defaults:**
 - CORS defaults to a localhost allowlist via `CORS_ORIGINS` (not `*`). With auth on, `allow_credentials=True`, so `CORS_ORIGINS` must never be `*`.
+- Interactive docs (`/docs`, `/redoc`, `/openapi.json`) are **off in production by default**: `DOCS_ENABLED` unset follows `DEBUG` (on in dev, off in prod); set it `true`/`false` to force. Resolved by `Settings.docs_ui_enabled`.
 - Per-user authentication is **on by default** (`AUTH_ENABLED=true`); set it `false` to run open. See "Authentication" below and [ADR 0001](docs/adr/0001-authentication.md).
 - Legacy `API_KEY` gate: when `AUTH_ENABLED=false`, setting `API_KEY` still requires a matching `X-API-Key` header (now enforced inside `get_current_user`, `src/auth/dependencies.py`). When auth is on, per-user credentials replace it.
 

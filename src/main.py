@@ -246,7 +246,8 @@ def serve(
         raise typer.Exit(1)
 
     typer.echo(f"Starting server at http://{host}:{port}")
-    typer.echo(f"API docs available at http://{host}:{port}/docs")
+    if get_settings().docs_ui_enabled:
+        typer.echo(f"API docs available at http://{host}:{port}/docs")
     uvicorn.run("src.api:app", host=host, port=port, reload=reload)
 
 
