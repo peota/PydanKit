@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Full suite + lint on SQLite (the zero-config default). Offline — no DB service.
+  test-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev,api,postgres]"
+      - run: ruff check src tests
+      - run: pytest -q
+
+  # Prove the DATABASE_URL story: the same auth + memory store tests, on real Postgres.
+  # The db_engine fixture (tests/conftest.py) routes to POSTGRES_TEST_URL when set.
+  test-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pk
+          POSTGRES_DB: pydankit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev,api,postgres]"
+      - name: Run auth + memory store tests against Postgres
+        env:
+          POSTGRES_TEST_URL: postgresql+asyncpg://postgres:pk@localhost:5432/pydankit
+        run: pytest tests/test_auth.py tests/test_memory_sqlite.py -q

@@ -67,7 +67,7 @@ const memoryStatus = document.getElementById('memory-status');
 const memoryDetails = document.getElementById('memory-details');
 const memoryStorage = document.getElementById('memory-storage');
 const memoryMaxMessages = document.getElementById('memory-max-messages');
-const sessionIdDisplay = document.getElementById('session-id');
+const sessionsList = document.getElementById('sessions-list');
 const toolsList = document.getElementById('tools-list');
 const appVersion = document.getElementById('app-version');
 const accountSection = document.getElementById('account-section');
@@ -93,57 +93,166 @@ const configErrorMessage = document.getElementById('config-error-message');
 
 // State
 let isFirstMessage = true;
-let currentSessionId = null;
+let currentSessionId = null;   // the THREAD id; the server namespaces it under the user
+let currentUsername = null;    // set after /info; null when auth is off
 
-// Session Management
-function generateSessionId() {
-    // Generate a random GUID
-    return 'dashboard-' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+// Session Management ----------------------------------------------------------
+function generateThreadId() {
+    return 'dashboard-' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         const r = Math.random() * 16 | 0;
         const v = c === 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
 }
 
-function getOrCreateSessionId() {
-    // Try to get from localStorage
-    let sessionId = localStorage.getItem('dashboard_session_id');
-
-    if (!sessionId) {
-        sessionId = generateSessionId();
-        localStorage.setItem('dashboard_session_id', sessionId);
-    }
-
-    return sessionId;
+// Convert between the server's full id (user:<name>:<thread>) and the thread id the
+// client sends. With auth off there's no prefix, so the two are identical.
+function fullId(threadId) {
+    if (!currentUsername) return threadId;
+    return threadId ? `user:${currentUsername}:${threadId}` : `user:${currentUsername}`;
+}
+function threadIdOf(fullSessionId) {
+    if (!currentUsername) return fullSessionId;
+    const prefix = `user:${currentUsername}:`;
+    if (fullSessionId.startsWith(prefix)) return fullSessionId.slice(prefix.length);
+    if (fullSessionId === `user:${currentUsername}`) return '';  // the default thread
+    return fullSessionId;
 }
 
-function resetSession() {
-    // Generate new session ID
-    currentSessionId = generateSessionId();
-    localStorage.setItem('dashboard_session_id', currentSessionId);
-
-    // Update display
-    sessionIdDisplay.textContent = currentSessionId;
-
-    // Clear chat
-    chatMessages.innerHTML = `
+function emptyChatPlaceholder(text) {
+    return `
         <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
             <div class="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
                 <svg class="w-6 h-6 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
             </div>
-            <p class="text-slate-500 dark:text-slate-400 text-sm">New session started</p>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">${text}</p>
         </div>
     `;
-    isFirstMessage = true;
+}
 
+function newSession() {
+    currentSessionId = generateThreadId();
+    localStorage.setItem('dashboard_session_id', currentSessionId);
+    chatMessages.innerHTML = emptyChatPlaceholder('Start a new session');
+    isFirstMessage = true;
+    highlightActiveSession();
     chatInput.focus();
 }
 
-// Initialize session on load
-currentSessionId = getOrCreateSessionId();
-sessionIdDisplay.textContent = currentSessionId;
+async function loadSessions() {
+    if (!sessionsList) return;
+    try {
+        const res = await authedFetch('/sessions');
+        if (!res.ok) return;
+        const data = await res.json();
+        renderSessions(data.sessions || []);
+    } catch (e) {
+        console.error('Load sessions error:', e);
+    }
+}
+
+function formatWhen(iso) {
+    try {
+        return new Date(iso).toLocaleString(undefined,
+            { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    } catch (e) { return ''; }
+}
+
+function renderSessions(sessions) {
+    sessionsList.textContent = '';
+    if (!sessions.length) {
+        const p = document.createElement('p');
+        p.className = 'text-xs text-slate-400 italic';
+        p.textContent = 'No sessions yet';
+        sessionsList.appendChild(p);
+        return;
+    }
+    for (const s of sessions) sessionsList.appendChild(renderSessionRow(s));
+    highlightActiveSession();
+}
+
+function renderSessionRow(s) {
+    const threadId = threadIdOf(s.session_id);
+    const row = document.createElement('div');
+    row.dataset.threadId = threadId;
+    row.className = 'session-row group flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors';
+
+    const open = document.createElement('button');
+    open.className = 'flex-1 min-w-0 text-left';
+    const title = document.createElement('p');
+    title.className = 'text-sm font-medium text-slate-700 dark:text-slate-200 truncate';
+    title.textContent = threadId ? 'Session' : 'Default';
+    const meta = document.createElement('p');
+    meta.className = 'text-[10px] text-slate-400 dark:text-slate-500';
+    const n = s.message_count;
+    meta.textContent = `${n} msg${n === 1 ? '' : 's'} · ${formatWhen(s.updated_at)}`;
+    open.appendChild(title);
+    open.appendChild(meta);
+    open.addEventListener('click', () => switchToSession(s.session_id));
+    row.appendChild(open);
+
+    const del = document.createElement('button');
+    del.className = 'shrink-0 opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 transition-opacity';
+    del.title = 'Delete session';
+    del.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>';
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteSession(s.session_id); });
+    row.appendChild(del);
+    return row;
+}
+
+function highlightActiveSession() {
+    if (!sessionsList) return;
+    for (const row of sessionsList.querySelectorAll('.session-row')) {
+        const active = row.dataset.threadId === (currentSessionId || '');
+        row.classList.toggle('bg-slate-100', active);
+        row.classList.toggle('dark:bg-slate-800', active);
+        row.classList.toggle('border-slate-200', active);
+        row.classList.toggle('dark:border-slate-700', active);
+    }
+}
+
+async function switchToSession(fullSessionId) {
+    currentSessionId = threadIdOf(fullSessionId);
+    localStorage.setItem('dashboard_session_id', currentSessionId);
+    highlightActiveSession();
+    chatMessages.innerHTML = emptyChatPlaceholder('Loading…');
+    try {
+        const res = await authedFetch(`/sessions/${encodeURIComponent(fullSessionId)}/messages`);
+        if (!res.ok) { chatMessages.innerHTML = emptyChatPlaceholder('Could not load this session'); return; }
+        const data = await res.json();
+        renderHistory(data.messages || []);
+    } catch (e) {
+        console.error('Switch session error:', e);
+        chatMessages.innerHTML = emptyChatPlaceholder('Could not load this session');
+    }
+}
+
+function renderHistory(messages) {
+    if (!messages.length) {
+        chatMessages.innerHTML = emptyChatPlaceholder('No messages yet');
+        isFirstMessage = true;
+        return;
+    }
+    chatMessages.innerHTML = '';
+    isFirstMessage = false;
+    for (const m of messages) appendMessage(m.role, m.content);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function deleteSession(fullSessionId) {
+    try {
+        const res = await authedFetch(`/sessions/${encodeURIComponent(fullSessionId)}`, { method: 'DELETE' });
+        if (!res.ok && res.status !== 404) { console.error('Delete failed', res.status); return; }
+    } catch (e) { console.error('Delete session error:', e); return; }
+    if (threadIdOf(fullSessionId) === (currentSessionId || '')) newSession();
+    loadSessions();
+}
+
+// Restore the last thread id (or start fresh). The server creates the row on first message.
+currentSessionId = localStorage.getItem('dashboard_session_id') || generateThreadId();
+localStorage.setItem('dashboard_session_id', currentSessionId);
 
 // Auth is cookie-based (ADR 0001): the HttpOnly session cookie rides along with
 // `credentials: 'include'`, so JS never handles the token. Unsafe requests send a
@@ -203,7 +312,9 @@ async function loadDashboard() {
 
         // Signed in -> we got here past the 401, so hide any login overlay.
         hideLogin();
+        currentUsername = info.authenticated_user || null;
         updateAccountPanel(info.authenticated_user, info.is_admin);
+        loadSessions();
 
         // If there's a config error, show partial status
         if (info.error) {
@@ -461,6 +572,7 @@ async function sendMessage(prompt) {
         contentElement.textContent = 'Sorry, there was an error processing your request. Please check the connection.';
     } finally {
         setLoading(false);
+        loadSessions();  // reflect the new/updated thread in the sidebar
     }
 }
 

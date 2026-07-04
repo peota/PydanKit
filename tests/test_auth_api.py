@@ -26,9 +26,11 @@ def _turn(prompt: str, reply: str) -> list:
 def _clear_caches() -> None:
     from src.auth.dependencies import get_auth_store
     from src.config import get_settings
+    from src.db import get_engine
     from src.memory.manager import get_memory_manager
 
     get_settings.cache_clear()
+    get_engine.cache_clear()
     get_auth_store.cache_clear()
     get_memory_manager.cache_clear()
 
@@ -37,7 +39,8 @@ def _clear_caches() -> None:
 def auth_client(tmp_path, monkeypatch):
     """App booted with auth on, a temp DB, and alice/bob seeded with one session each."""
     monkeypatch.setenv("AUTH_ENABLED", "true")
-    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "app.db"))
+    db_url = f"sqlite+aiosqlite:///{str(tmp_path / 'app.db').replace(chr(92), '/')}"
+    monkeypatch.setenv("DATABASE_URL", db_url)  # overrides any real .env DATABASE_URL
     monkeypatch.setenv("LOGIN_MAX_ATTEMPTS", "2")  # keep the lockout test fast
     _clear_caches()
 
@@ -122,6 +125,41 @@ def test_memory_stats_scoped_to_caller(auth_client):
     _login(client, "alice", "pw-alice")
     stats = client.get("/memory/stats").json()
     assert stats["total_sessions"] == 1  # only alice's, not bob's
+
+
+def test_deps_namespace_authenticated_sessions():
+    """_deps_for scopes every authed thread under user:<name>; anon uses the raw id."""
+    from src.api import ChatRequest, _deps_for
+    from src.auth.db import User
+
+    alice = User(id=1, username="alice", is_admin=False, disabled=False, created_at=0.0)
+    assert _deps_for(alice, ChatRequest(prompt="x")).session_id == "user:alice"
+    named = _deps_for(alice, ChatRequest(prompt="x", session_id="work"))
+    assert named.session_id == "user:alice:work"
+    assert _deps_for(None, ChatRequest(prompt="x", session_id="raw")).session_id == "raw"
+
+
+def test_named_sessions_listed_scoped_and_isolated(auth_client):
+    _, client = auth_client
+    # Seed alice two named threads + bob one, directly via the manager (the stored form).
+    from src.memory.manager import get_memory_manager
+
+    mm = get_memory_manager()
+    asyncio.run(mm.save_turn("user:alice:work", _turn("q", "a"), user_id="alice"))
+    asyncio.run(mm.save_turn("user:alice:home", _turn("q", "a"), user_id="alice"))
+    asyncio.run(mm.save_turn("user:bob:work", _turn("q", "a"), user_id="bob"))
+
+    _login(client, "alice", "pw-alice")
+    ids = {s["session_id"] for s in client.get("/sessions").json()["sessions"]}
+    assert {"user:alice:work", "user:alice:home"} <= ids
+    assert all(sid.startswith("user:alice") for sid in ids)  # never bob's
+
+    # Alice reads her own thread's messages...
+    r = client.get("/sessions/user:alice:work/messages")
+    assert r.status_code == 200
+    assert [m["role"] for m in r.json()["messages"]] == ["user", "assistant"]
+    # ...but bob's thread is 404 (existence not leaked), even though it exists.
+    assert client.get("/sessions/user:bob:work/messages").status_code == 404
 
 
 # ---- transports ---------------------------------------------------------------
@@ -313,7 +351,8 @@ def test_wildcard_cors_refused_at_startup(monkeypatch):
 def test_env_seed_creates_first_admin(tmp_path, monkeypatch):
     """Lifespan seeds an admin from ADMIN_USERNAME/PASSWORD when none exists."""
     monkeypatch.setenv("AUTH_ENABLED", "true")
-    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "seed.db"))
+    db_url = f"sqlite+aiosqlite:///{str(tmp_path / 'seed.db').replace(chr(92), '/')}"
+    monkeypatch.setenv("DATABASE_URL", db_url)  # overrides any real .env DATABASE_URL
     monkeypatch.setenv("ADMIN_USERNAME", "seeded")
     monkeypatch.setenv("ADMIN_PASSWORD", "seed-pw")
     _clear_caches()

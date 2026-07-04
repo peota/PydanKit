@@ -123,11 +123,12 @@ The template includes a built-in conversation memory system that keeps context a
 - Enabled by default (opt-out via `MEMORY_ENABLED=false` or per-request flag)
 - Stores the full turn (tool calls included) — do **not** filter tool messages; that corrupts history
 
-**Backends:** the default is in-memory (`InMemoryStorage`) — **process-local, lost on
-restart, not shared across API workers**. A durable **SQLite backend ships**
-(`SqliteMemoryStorage`, `src/memory/sqlite_storage.py`): set `MEMORY_STORAGE_TYPE=sqlite`
-(needs the `[auth]` extra) to persist history in `DATABASE_PATH` and share it across
-workers. For other stores (Redis, etc.), implement `MemoryStorage` (see "Extending Storage").
+**Backends:** `InMemoryStorage` (process-local — lost on restart, not shared across
+workers) and the durable **`SqlMemoryStorage`** (`src/memory/sql_storage.py`) on the
+`DATABASE_URL` engine (SQLite or Postgres). `MEMORY_STORAGE_TYPE` selects: **`auto`**
+(default) uses `sql` when `DATABASE_URL` is set, else `memory`; `sql`/`memory` force it
+(`sqlite` = legacy alias for `sql`), resolved by `Settings.effective_memory_backend`.
+For other stores (Redis, etc.), implement `MemoryStorage` (see "Extending Storage").
 
 **Key Components:**
 - `MemoryManager` (memory/manager.py): Orchestrates history loading/saving
@@ -228,9 +229,9 @@ python -m src.main chat "Hello" --no-memory
 
 **Extending Storage:**
 
-Two backends ship: `InMemoryStorage` (default) and `SqliteMemoryStorage`
-(`MEMORY_STORAGE_TYPE=sqlite`). To add another (e.g. Redis):
-1. Implement the `MemoryStorage` interface (follow `sqlite_storage.py` as a model)
+Two backends ship: `InMemoryStorage` (default) and `SqlMemoryStorage`
+(`MEMORY_STORAGE_TYPE=sql`, on the `DATABASE_URL` engine). To add another (e.g. Redis):
+1. Implement the `MemoryStorage` interface (follow `sql_storage.py` as a model)
 2. Select it in `get_memory_manager()` (memory/manager.py), imported lazily
 3. Extend the `memory_storage_type` Literal in config.py / models.py
 

@@ -48,7 +48,9 @@ class MemoryStats(BaseModel):
     )
 
     enabled: bool = Field(..., description="Whether memory is enabled")
-    storage_type: Literal["memory", "sqlite"] = Field(..., description="Storage backend type")
+    storage_type: Literal["memory", "sql"] = Field(
+        ..., description="Resolved storage backend (memory or sql)"
+    )
     total_sessions: int = Field(default=0, description="Total number of sessions")
     total_messages: int = Field(
         default=0, description="Total number of messages across all sessions"

@@ -11,8 +11,8 @@ from src.auth.tokens import generate_token, hash_token
 
 
 @pytest.fixture
-async def store(tmp_path):
-    s = AuthStore(str(tmp_path / "auth.db"))
+async def store(db_engine):
+    s = AuthStore(db_engine)
     await s.init()
     return s
 
@@ -64,6 +64,16 @@ async def test_duplicate_username_raises(store):
     await store.create_user("alice", "pw")
     with pytest.raises(UsernameTakenError):
         await store.create_user("alice", "other")
+
+
+async def test_invalid_username_rejected(store):
+    from src.auth.db import InvalidUsernameError
+
+    # A colon would break the `user:<name>:<thread>` session namespace.
+    with pytest.raises(InvalidUsernameError):
+        await store.create_user("bad:name", "pw")
+    with pytest.raises(InvalidUsernameError):
+        await store.create_service_account("has space")
 
 
 async def test_verify_login(store):

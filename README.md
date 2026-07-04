@@ -16,7 +16,7 @@ A minimal, well-structured skeleton for building AI agents with [Pydantic AI](ht
 - 🔌 **Tool framework** - easy to add custom capabilities
 - 🧪 **Tests + evals** - offline `TestModel` tests and a Pydantic Evals example (`make test`)
 - 📊 **Observability** - Logfire integration included
-- 🐳 **Docker ready** - deploy anywhere
+- 🐳 **Docker ready** - one-command image + a [verified deploy guide](docs/deployment.md)
 
 ## 🚀 Quick Start
 

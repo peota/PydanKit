@@ -1,24 +1,26 @@
-"""SQLite-backed auth store: users, tokens, login-attempt throttle (ADR 0001).
+"""SQLAlchemy-Core auth store: users, tokens, login-attempt throttle (ADR 0001).
 
-Async via aiosqlite. One database file (``config.database_path``) holds auth data
-and — when ``memory_storage_type="sqlite"`` — conversation history too. Tables are
-created on demand with ``CREATE TABLE IF NOT EXISTS`` (ADR 0001: no migrations).
-
-A connection is opened per operation. At SQLite's scale that's cheap, avoids
-cross-task connection sharing, and WAL mode keeps readers from blocking a writer.
+Async access over a single engine chosen by ``DATABASE_URL`` (see ``src/db.py``):
+SQLite by default, PostgreSQL for cloud / multi-instance. The same code runs on both
+dialects — SQLAlchemy renders the placeholder, ``RETURNING`` and boolean differences.
+Tables are created on demand via ``ensure_schema`` (ADR 0001/0003: no migrations).
 """
 
 from __future__ import annotations
 
-import sqlite3
+import re
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Literal
 
-import aiosqlite
+from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.auth.passwords import hash_password, verify_password
 from src.auth.tokens import generate_token, hash_token
+from src.db import create_engine_from_url, ensure_schema, login_attempts, tokens, users
 
 TokenKind = Literal["session", "api_key"]
 
@@ -26,32 +28,6 @@ TokenKind = Literal["session", "api_key"]
 # hash, so verify_password always fails for it — service accounts can hold API keys
 # but can never log in with a password (ADR 0002).
 SERVICE_PASSWORD_SENTINEL = "!"
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    is_admin      INTEGER NOT NULL DEFAULT 0,
-    disabled      INTEGER NOT NULL DEFAULT 0,
-    created_at    REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS tokens (
-    token_hash TEXT PRIMARY KEY,
-    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    kind       TEXT NOT NULL CHECK (kind IN ('session', 'api_key')),
-    name       TEXT,
-    created_at REAL NOT NULL,
-    expires_at REAL,
-    revoked    INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS login_attempts (
-    identifier TEXT NOT NULL,
-    at         REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_login_attempts ON login_attempts(identifier, at);
-"""
 
 
 @dataclass(frozen=True)
@@ -67,7 +43,7 @@ class User:
     is_service: bool = False
 
 
-def _to_user(row: aiosqlite.Row) -> User:
+def _to_user(row) -> User:
     return User(
         id=row["id"],
         username=row["username"],
@@ -94,47 +70,77 @@ class UsernameTakenError(ValueError):
     """Raised when creating a user whose username already exists."""
 
 
+class InvalidUsernameError(ValueError):
+    """Raised when a username uses characters outside the allowed set."""
+
+
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _validate_username(username: str) -> None:
+    """Usernames must be non-empty and colon-free (safe charset) so a session id
+    ``user:<name>:<thread>`` parses unambiguously back to its owner (ADR 0001/0003)."""
+    if not _USERNAME_RE.fullmatch(username):
+        raise InvalidUsernameError(
+            f"Invalid username {username!r}: use letters, digits, '_', '.', or '-'."
+        )
+
+
 class AuthStore:
-    """Async access layer for the auth tables. Construct with a DB path."""
+    """Async access layer for the auth tables over a shared SQLAlchemy engine.
 
-    def __init__(self, path: str) -> None:
-        self._path = path
-        # Create tables once, synchronously, so the store is ready to use as soon
-        # as it's constructed (no separate async startup step required).
-        with sqlite3.connect(self._path) as db:
-            db.executescript(_SCHEMA)
+    Accepts an ``AsyncEngine`` (production passes the shared ``get_engine()``), or a
+    URL / bare file path (tests, CLI convenience) from which a SQLite engine is built.
+    """
 
-    async def _connect(self) -> aiosqlite.Connection:
-        db = await aiosqlite.connect(self._path)
-        db.row_factory = aiosqlite.Row
-        await db.execute("PRAGMA journal_mode=WAL")
-        await db.execute("PRAGMA foreign_keys=ON")
-        return db
+    def __init__(self, engine_or_url: AsyncEngine | str) -> None:
+        if isinstance(engine_or_url, AsyncEngine):
+            self._engine = engine_or_url
+        elif "://" in engine_or_url:
+            self._engine = create_engine_from_url(engine_or_url)
+        else:
+            # Bare filesystem path -> SQLite URL (forward slashes for Windows safety).
+            path = engine_or_url.replace("\\", "/")
+            self._engine = create_engine_from_url(f"sqlite+aiosqlite:///{path}")
+
+    @asynccontextmanager
+    async def _begin(self):
+        """A committing transaction, with the schema ensured first."""
+        await ensure_schema(self._engine)
+        async with self._engine.begin() as conn:
+            yield conn
+
+    @asynccontextmanager
+    async def _connect(self):
+        """A read-only connection, with the schema ensured first."""
+        await ensure_schema(self._engine)
+        async with self._engine.connect() as conn:
+            yield conn
 
     async def init(self) -> None:
         """Create tables/indexes if they don't exist. Safe to call repeatedly."""
-        async with aiosqlite.connect(self._path) as db:
-            await db.executescript(_SCHEMA)
-            await db.commit()
+        await ensure_schema(self._engine)
 
     # ---- users ---------------------------------------------------------------
 
     async def create_user(self, username: str, password: str, *, is_admin: bool = False) -> User:
         """Insert a user with a bcrypt-hashed password. Raises UsernameTakenError."""
+        _validate_username(username)
         now = time.time()
-        db = await self._connect()
         try:
-            cursor = await db.execute(
-                "INSERT INTO users (username, password_hash, is_admin, disabled, created_at) "
-                "VALUES (?, ?, ?, 0, ?)",
-                (username, hash_password(password), int(is_admin), now),
-            )
-            await db.commit()
-            user_id = cursor.lastrowid
-        except aiosqlite.IntegrityError as exc:
+            async with self._begin() as conn:
+                result = await conn.execute(
+                    insert(users).values(
+                        username=username,
+                        password_hash=hash_password(password),
+                        is_admin=int(is_admin),
+                        disabled=0,
+                        created_at=now,
+                    )
+                )
+                user_id = result.inserted_primary_key[0]
+        except IntegrityError as exc:
             raise UsernameTakenError(username) from exc
-        finally:
-            await db.close()
         return User(
             id=user_id, username=username, is_admin=is_admin, disabled=False, created_at=now
         )
@@ -145,20 +151,22 @@ class AuthStore:
         Holds API keys but can never log in (sentinel password hash). Raises
         UsernameTakenError on a duplicate username.
         """
+        _validate_username(username)
         now = time.time()
-        db = await self._connect()
         try:
-            cursor = await db.execute(
-                "INSERT INTO users (username, password_hash, is_admin, disabled, created_at) "
-                "VALUES (?, ?, 0, 0, ?)",
-                (username, SERVICE_PASSWORD_SENTINEL, now),
-            )
-            await db.commit()
-            user_id = cursor.lastrowid
-        except aiosqlite.IntegrityError as exc:
+            async with self._begin() as conn:
+                result = await conn.execute(
+                    insert(users).values(
+                        username=username,
+                        password_hash=SERVICE_PASSWORD_SENTINEL,
+                        is_admin=0,
+                        disabled=0,
+                        created_at=now,
+                    )
+                )
+                user_id = result.inserted_primary_key[0]
+        except IntegrityError as exc:
             raise UsernameTakenError(username) from exc
-        finally:
-            await db.close()
         return User(
             id=user_id,
             username=username,
@@ -170,59 +178,41 @@ class AuthStore:
 
     async def has_admin(self) -> bool:
         """True if at least one enabled admin exists (used to gate env-seeding)."""
-        db = await self._connect()
-        try:
-            async with db.execute(
-                "SELECT 1 FROM users WHERE is_admin = 1 AND disabled = 0 LIMIT 1"
-            ) as cur:
-                row = await cur.fetchone()
-        finally:
-            await db.close()
-        return row is not None
+        async with self._connect() as conn:
+            result = await conn.execute(
+                select(users.c.id).where(users.c.is_admin == 1, users.c.disabled == 0).limit(1)
+            )
+            return result.first() is not None
 
     async def get_user_by_username(self, username: str) -> User | None:
-        db = await self._connect()
-        try:
-            async with db.execute("SELECT * FROM users WHERE username = ?", (username,)) as cur:
-                row = await cur.fetchone()
-        finally:
-            await db.close()
+        async with self._connect() as conn:
+            result = await conn.execute(select(users).where(users.c.username == username))
+            row = result.mappings().first()
         return _to_user(row) if row else None
 
     async def get_user_by_id(self, user_id: int) -> User | None:
-        db = await self._connect()
-        try:
-            async with db.execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cur:
-                row = await cur.fetchone()
-        finally:
-            await db.close()
+        async with self._connect() as conn:
+            result = await conn.execute(select(users).where(users.c.id == user_id))
+            row = result.mappings().first()
         return _to_user(row) if row else None
 
     async def list_users(self) -> list[User]:
-        db = await self._connect()
-        try:
-            async with db.execute("SELECT * FROM users ORDER BY id") as cur:
-                rows = await cur.fetchall()
-        finally:
-            await db.close()
+        async with self._connect() as conn:
+            result = await conn.execute(select(users).order_by(users.c.id))
+            rows = result.mappings().all()
         return [_to_user(r) for r in rows]
 
     async def set_disabled(self, user_id: int, disabled: bool) -> None:
-        db = await self._connect()
-        try:
-            await db.execute("UPDATE users SET disabled = ? WHERE id = ?", (int(disabled), user_id))
-            await db.commit()
-        finally:
-            await db.close()
+        async with self._begin() as conn:
+            await conn.execute(
+                update(users).where(users.c.id == user_id).values(disabled=int(disabled))
+            )
 
     async def verify_login(self, username: str, password: str) -> User | None:
         """Return the user iff the password matches and the account is enabled."""
-        db = await self._connect()
-        try:
-            async with db.execute("SELECT * FROM users WHERE username = ?", (username,)) as cur:
-                row = await cur.fetchone()
-        finally:
-            await db.close()
+        async with self._connect() as conn:
+            result = await conn.execute(select(users).where(users.c.username == username))
+            row = result.mappings().first()
         if row is None or row["disabled"]:
             return None
         if not verify_password(password, row["password_hash"]):
@@ -247,16 +237,18 @@ class AuthStore:
         token = generate_token()
         now = time.time()
         expires_at = now + ttl_seconds if ttl_seconds is not None else None
-        db = await self._connect()
-        try:
-            await db.execute(
-                "INSERT INTO tokens (token_hash, user_id, kind, name, created_at, expires_at, "
-                "revoked) VALUES (?, ?, ?, ?, ?, ?, 0)",
-                (hash_token(token), user_id, kind, name, now, expires_at),
+        async with self._begin() as conn:
+            await conn.execute(
+                insert(tokens).values(
+                    token_hash=hash_token(token),
+                    user_id=user_id,
+                    kind=kind,
+                    name=name,
+                    created_at=now,
+                    expires_at=expires_at,
+                    revoked=0,
+                )
             )
-            await db.commit()
-        finally:
-            await db.close()
         return token
 
     async def resolve_token(self, token: str) -> User | None:
@@ -265,16 +257,24 @@ class AuthStore:
         None if unknown, revoked, expired, or the owning account is disabled.
         """
         digest = hash_token(token)
-        db = await self._connect()
-        try:
-            async with db.execute(
-                "SELECT t.expires_at, t.revoked, u.* FROM tokens t "
-                "JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?",
-                (digest,),
-            ) as cur:
-                row = await cur.fetchone()
-        finally:
-            await db.close()
+        joined = tokens.join(users, users.c.id == tokens.c.user_id)
+        query = (
+            select(
+                tokens.c.expires_at,
+                tokens.c.revoked,
+                users.c.id,
+                users.c.username,
+                users.c.is_admin,
+                users.c.disabled,
+                users.c.created_at,
+                users.c.password_hash,
+            )
+            .select_from(joined)
+            .where(tokens.c.token_hash == digest)
+        )
+        async with self._connect() as conn:
+            result = await conn.execute(query)
+            row = result.mappings().first()
         if row is None or row["revoked"] or row["disabled"]:
             return None
         if row["expires_at"] is not None and row["expires_at"] < time.time():
@@ -283,48 +283,40 @@ class AuthStore:
 
     async def extend_token(self, token: str, ttl_seconds: float) -> None:
         """Push a token's expiry forward (sliding session refresh). No-op if absent."""
-        db = await self._connect()
-        try:
-            await db.execute(
-                "UPDATE tokens SET expires_at = ? WHERE token_hash = ? AND revoked = 0",
-                (time.time() + ttl_seconds, hash_token(token)),
+        async with self._begin() as conn:
+            await conn.execute(
+                update(tokens)
+                .where(tokens.c.token_hash == hash_token(token), tokens.c.revoked == 0)
+                .values(expires_at=time.time() + ttl_seconds)
             )
-            await db.commit()
-        finally:
-            await db.close()
 
     async def revoke_token(self, token: str) -> None:
         """Revoke a single token by its plaintext value (logout)."""
-        db = await self._connect()
-        try:
-            await db.execute(
-                "UPDATE tokens SET revoked = 1 WHERE token_hash = ?", (hash_token(token),)
+        async with self._begin() as conn:
+            await conn.execute(
+                update(tokens).where(tokens.c.token_hash == hash_token(token)).values(revoked=1)
             )
-            await db.commit()
-        finally:
-            await db.close()
 
     async def list_tokens(
         self, user_id: int, *, kind: TokenKind | None = None, include_revoked: bool = False
     ) -> list[TokenInfo]:
         """List a user's tokens as metadata (never the plaintext). Newest first."""
-        query = (
-            "SELECT token_hash, kind, name, created_at, expires_at, revoked "
-            "FROM tokens WHERE user_id = ?"
-        )
-        params: list = [user_id]
+        query = select(
+            tokens.c.token_hash,
+            tokens.c.kind,
+            tokens.c.name,
+            tokens.c.created_at,
+            tokens.c.expires_at,
+            tokens.c.revoked,
+        ).where(tokens.c.user_id == user_id)
         if kind is not None:
-            query += " AND kind = ?"
-            params.append(kind)
+            query = query.where(tokens.c.kind == kind)
         if not include_revoked:
-            query += " AND revoked = 0"
-        query += " ORDER BY created_at DESC"
-        db = await self._connect()
-        try:
-            async with db.execute(query, params) as cur:
-                rows = await cur.fetchall()
-        finally:
-            await db.close()
+            query = query.where(tokens.c.revoked == 0)
+        query = query.order_by(tokens.c.created_at.desc())
+        async with self._connect() as conn:
+            result = await conn.execute(query)
+            rows = result.mappings().all()
         return [
             TokenInfo(
                 token_hash=r["token_hash"],
@@ -341,52 +333,38 @@ class AuthStore:
         """Revoke a token by its stored hash (the admin-UI handle). Returns True if a
         row was affected. The hash is not the secret and can't be used to authenticate.
         """
-        db = await self._connect()
-        try:
-            cursor = await db.execute(
-                "UPDATE tokens SET revoked = 1 WHERE token_hash = ? AND revoked = 0",
-                (token_hash,),
+        async with self._begin() as conn:
+            result = await conn.execute(
+                update(tokens)
+                .where(tokens.c.token_hash == token_hash, tokens.c.revoked == 0)
+                .values(revoked=1)
             )
-            await db.commit()
-            return cursor.rowcount > 0
-        finally:
-            await db.close()
+            return result.rowcount > 0
 
     # ---- login throttle ------------------------------------------------------
 
     async def record_failure(self, identifier: str) -> None:
         """Record one failed login for an identifier (e.g. username or client IP)."""
-        db = await self._connect()
-        try:
-            await db.execute(
-                "INSERT INTO login_attempts (identifier, at) VALUES (?, ?)",
-                (identifier, time.time()),
-            )
-            await db.commit()
-        finally:
-            await db.close()
+        async with self._begin() as conn:
+            await conn.execute(insert(login_attempts).values(identifier=identifier, at=time.time()))
 
     async def is_locked_out(
         self, identifier: str, max_attempts: int, window_seconds: float
     ) -> bool:
         """True if failures within the window meet/exceed max_attempts."""
         cutoff = time.time() - window_seconds
-        db = await self._connect()
-        try:
-            async with db.execute(
-                "SELECT COUNT(*) AS n FROM login_attempts WHERE identifier = ? AND at >= ?",
-                (identifier, cutoff),
-            ) as cur:
-                row = await cur.fetchone()
-        finally:
-            await db.close()
-        return row["n"] >= max_attempts
+        async with self._connect() as conn:
+            result = await conn.execute(
+                select(func.count())
+                .select_from(login_attempts)
+                .where(login_attempts.c.identifier == identifier, login_attempts.c.at >= cutoff)
+            )
+            count = result.scalar_one()
+        return count >= max_attempts
 
     async def clear_failures(self, identifier: str) -> None:
         """Drop recorded failures for an identifier after a successful login."""
-        db = await self._connect()
-        try:
-            await db.execute("DELETE FROM login_attempts WHERE identifier = ?", (identifier,))
-            await db.commit()
-        finally:
-            await db.close()
+        async with self._begin() as conn:
+            await conn.execute(
+                delete(login_attempts).where(login_attempts.c.identifier == identifier)
+            )

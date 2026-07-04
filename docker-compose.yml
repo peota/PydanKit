@@ -15,6 +15,20 @@ services:
     # Override command for interactive mode
     command: ["interactive"]
 
+  # API server + dashboard on http://localhost:8000 ("how do I serve via compose?")
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8000:8000"
+    # The image already defaults to `serve` (host 0.0.0.0, port 8000 unless $PORT is
+    # set); stated explicitly so the intent is obvious and survives a CMD change.
+    command: ["serve"]
+
   # Development container with source mounted
   agent-dev:
     build:

@@ -20,9 +20,16 @@ import logging
 from contextlib import asynccontextmanager
 
 from pydantic import BaseModel, Field
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 
 from src.agent import get_agent_info, run_agent, run_agent_stream
-from src.auth.db import User, UsernameTakenError
+from src.auth.db import InvalidUsernameError, User, UsernameTakenError
 from src.auth.dependencies import (
     SESSION_COOKIE,
     clear_session_cookie,
@@ -74,16 +81,16 @@ async def _lifespan(_app: "FastAPI"):
             except Exception as e:  # never block startup on a seed hiccup
                 logger.warning("Admin env-seed skipped: %s", e)
 
-    # Auth is durable (SQLite) but the default memory backend is process-local. Under
-    # multiple workers that's a silent inconsistency — warn rather than surprise.
+    # Auth is durable (the DATABASE_URL engine) but the default memory backend is
+    # process-local. Under multiple workers that's a silent inconsistency — warn.
     if (
         settings.auth_enabled
         and settings.memory_enabled
-        and settings.memory_storage_type == "memory"
+        and settings.effective_memory_backend == "memory"
     ):
         logger.warning(
             "Memory backend is 'memory' (process-local, lost on restart, not shared "
-            "across workers) while auth is enabled. Set MEMORY_STORAGE_TYPE=sqlite for "
+            "across workers) while auth is enabled. Set MEMORY_STORAGE_TYPE=sql for "
             "durable, worker-shared conversation history."
         )
     yield
@@ -143,8 +150,9 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(
         default=None,
         max_length=256,
-        pattern=r"^[a-zA-Z0-9_:-]*$",
-        description="Session ID for conversation context (ignored when authenticated)",
+        pattern=r"^[a-zA-Z0-9_-]*$",
+        description="Conversation thread id. When authenticated it is namespaced under "
+        "your account (user:<name>:<id>); omit for your default thread.",
     )
     memory_enabled: bool = Field(
         default=True,
@@ -169,16 +177,19 @@ class LoginResponse(BaseModel):
 def _deps_for(user: User | None, request: ChatRequest) -> AgentDeps:
     """Build AgentDeps, scoping memory to the authenticated user when present.
 
-    Authenticated: identity = username, pinned to session ``user:<username>`` (the
-    request's session_id is ignored — see ADR 0001, one session per user in v1).
+    Authenticated: sessions are namespaced under the caller — ``user:<name>`` (the
+    default thread) or ``user:<name>:<session_id>`` for a specific one. The client picks
+    the thread but can never escape its own namespace (ADR 0001 isolation).
     Anonymous (auth off): the request's session_id drives continuity as before.
     """
     if user is not None:
-        # Pin the session explicitly (not via auto-session) so memory works even when
-        # MEMORY_AUTO_SESSION is false. Matches the `user:<username>` ownership scheme.
+        base = f"user:{user.username}"
+        # session_id is a colon-free thread id (validated on ChatRequest); prefixing it
+        # keeps every thread owned by, and scoped to, this user.
+        session_id = f"{base}:{request.session_id}" if request.session_id else base
         return AgentDeps(
             user_id=user.username,
-            session_id=f"user:{user.username}",
+            session_id=session_id,
             memory_enabled=request.memory_enabled,
         )
     return AgentDeps(
@@ -270,7 +281,7 @@ async def info(user: User | None = Depends(get_current_user)) -> InfoResponse:
             debug=settings.debug,
             logfire_enabled=bool(settings.logfire_token),
             memory_enabled=settings.memory_enabled,
-            memory_storage_type=settings.memory_storage_type,
+            memory_storage_type=settings.effective_memory_backend,
             memory_max_messages=settings.memory_max_messages,
             authenticated_user=username,
             is_admin=is_admin,
@@ -421,6 +432,55 @@ async def clear_session(
         raise HTTPException(status_code=500, detail=sanitize_error(e, "clear session"))
 
 
+class SessionMessage(BaseModel):
+    """One rendered turn for display (a user prompt or the assistant's text)."""
+
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str
+
+
+class SessionMessagesResponse(BaseModel):
+    """A session's messages flattened to displayable text for the dashboard."""
+
+    session_id: str
+    messages: list[SessionMessage]
+
+
+def _render_messages(history: list[ModelMessage]) -> list[SessionMessage]:
+    """Flatten stored ModelMessages to {role, content}, keeping only text parts."""
+    rendered: list[SessionMessage] = []
+    for msg in history:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart) and isinstance(part.content, str):
+                    rendered.append(SessionMessage(role="user", content=part.content))
+        elif isinstance(msg, ModelResponse):
+            text = "".join(p.content for p in msg.parts if isinstance(p, TextPart))
+            if text:
+                rendered.append(SessionMessage(role="assistant", content=text))
+    return rendered
+
+
+@app.get("/sessions/{session_id}/messages", response_model=SessionMessagesResponse)
+async def get_session_messages(
+    session_id: str, user: User | None = Depends(get_current_user)
+) -> SessionMessagesResponse:
+    """Return a session's messages as displayable text (only the caller's when authed)."""
+    if not settings.memory_enabled:
+        raise HTTPException(status_code=404, detail="Memory is disabled")
+    try:
+        memory_manager = get_memory_manager()
+        metadata = await memory_manager.get_session_metadata(session_id)
+        if metadata is None or not _owns_session(user, metadata):
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        history = await memory_manager.get_history(session_id=session_id)
+        return SessionMessagesResponse(session_id=session_id, messages=_render_messages(history))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=sanitize_error(e, "get session messages"))
+
+
 @app.get("/memory/stats", response_model=MemoryStats)
 async def memory_stats(user: User | None = Depends(get_current_user)) -> MemoryStats:
     """Get memory system statistics (scoped to the caller when authenticated)."""
@@ -432,7 +492,7 @@ async def memory_stats(user: User | None = Depends(get_current_user)) -> MemoryS
         own = [s for s in await memory_manager.list_sessions() if s.user_id == user.username]
         return MemoryStats(
             enabled=settings.memory_enabled,
-            storage_type=settings.memory_storage_type,
+            storage_type=settings.effective_memory_backend,
             total_sessions=len(own),
             total_messages=sum(s.message_count for s in own),
             max_messages=settings.memory_max_messages,
@@ -508,6 +568,8 @@ async def admin_create_service_account(
         user = await store.create_service_account(body.username)
     except UsernameTakenError:
         raise HTTPException(status_code=409, detail=f"Username already exists: {body.username}")
+    except InvalidUsernameError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return _to_admin_user(user)
 
 

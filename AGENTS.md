@@ -36,11 +36,11 @@ smaller change and say what you deliberately left out.
 - **Model selection.** Prototype with a capable model to establish a baseline,
   then downshift to cheaper/faster models and confirm quality holds via evals.
 - **Memory.** The default backend is in-memory and **ephemeral** (lost on restart,
-  not shared across API workers). A durable **SQLite backend now ships**
-  (`SqliteMemoryStorage`, `src/memory/sqlite_storage.py`); select it with
-  `MEMORY_STORAGE_TYPE=sqlite` (needs the `[auth]` extra). For other backends,
-  implement the `MemoryStorage` interface and select it in `get_memory_manager`.
-  Do not hack persistence in elsewhere.
+  not shared across API workers). A durable **SQL backend now ships**
+  (`SqlMemoryStorage`, `src/memory/sql_storage.py`) on the `DATABASE_URL` engine
+  (SQLite or Postgres); select it with `MEMORY_STORAGE_TYPE=sql` (needs the
+  `[auth]`/`[api]` extra). For other backends, implement the `MemoryStorage`
+  interface and select it in `get_memory_manager`. Do not hack persistence elsewhere.
 - **Auth.** On by default (`AUTH_ENABLED=true`; set false to run open). Identity
   (ADR 0001) comes from the credential, never the request body, and every data route
   scopes to the caller. Don't re-introduce a client-supplied `user_id`, and don't add

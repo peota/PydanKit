@@ -158,7 +158,7 @@ def users(
     The CLI is a trusted admin shell (ADR 0001): it needs no login. Use ``--add``
     to bootstrap the first admin on a fresh database.
     """
-    from src.auth.db import UsernameTakenError
+    from src.auth.db import InvalidUsernameError, UsernameTakenError
 
     store = _auth_store()
 
@@ -168,6 +168,9 @@ def users(
             user = asyncio.run(store.create_user(add, password, is_admin=admin))
         except UsernameTakenError:
             typer.echo(f"User already exists: {add}", err=True)
+            raise typer.Exit(1)
+        except InvalidUsernameError as e:
+            typer.echo(str(e), err=True)
             raise typer.Exit(1)
         typer.echo(f"Created user '{user.username}'" + (" (admin)" if user.is_admin else ""))
         return
@@ -226,10 +229,16 @@ def apikey(
 @app.command()
 def serve(
     host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host to bind to"),
-    port: int = typer.Option(8000, "--port", "-p", help="Port to bind to"),
+    port: int = typer.Option(
+        8000, "--port", "-p", envvar="PORT", help="Port to bind to (reads $PORT if set)"
+    ),
     reload: bool = typer.Option(False, "--reload", "-r", help="Enable auto-reload for development"),
 ) -> None:
-    """Start the FastAPI server (requires 'api' extras)."""
+    """Start the FastAPI server (requires 'api' extras).
+
+    Binds ``$PORT`` when set — cloud hosts (Railway, Cloud Run, ...) inject it — and
+    falls back to ``--port``/8000 otherwise. Host defaults to 0.0.0.0 for containers.
+    """
     try:
         import uvicorn
     except ImportError:
@@ -237,7 +246,7 @@ def serve(
         raise typer.Exit(1)
 
     typer.echo(f"Starting server at http://{host}:{port}")
-    typer.echo("API docs available at http://{host}:{port}/docs")
+    typer.echo(f"API docs available at http://{host}:{port}/docs")
     uvicorn.run("src.api:app", host=host, port=port, reload=reload)
 
 

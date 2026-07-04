@@ -205,6 +205,6 @@ def get_agent_info() -> dict:
         "debug": settings.debug,
         "logfire_enabled": bool(settings.logfire_token),
         "memory_enabled": settings.memory_enabled,
-        "memory_storage_type": settings.memory_storage_type,
+        "memory_storage_type": settings.effective_memory_backend,
         "memory_max_messages": settings.memory_max_messages,
     }

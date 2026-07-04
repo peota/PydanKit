@@ -51,7 +51,14 @@ class Settings(BaseSettings):
     # request/anonymous value. (ADR 0001 recommends false; the shipped default is true.)
     auth_enabled: bool = True
     # Single SQLite database for users, tokens, and (optionally) conversation memory.
+    # Legacy setting: kept as a back-compat alias. When DATABASE_URL is unset, a SQLite
+    # URL is derived from this path (see `sqlalchemy_url`).
     database_path: str = "pydankit.db"
+    # Full SQLAlchemy engine URL selecting the storage backend, e.g.:
+    #   sqlite+aiosqlite:///./pydankit.db          (default, zero-config, light/local)
+    #   postgresql+asyncpg://user:pass@host/db     (cloud / multi-instance)
+    # Leave unset to fall back to a SQLite URL derived from DATABASE_PATH above.
+    database_url: str | None = None
     # First-admin bootstrap for shell-less deploys (ADR 0002): if auth is on and no
     # admin exists yet, an admin with these credentials is created on startup. Leave
     # unset to skip. Rotate/clear the password after first login.
@@ -67,13 +74,41 @@ class Settings(BaseSettings):
     login_lockout_seconds: int = 300
 
     # Memory Configuration
-    # Default backend ("memory") is process-local: history is lost on restart and NOT
-    # shared across API workers. Set MEMORY_STORAGE_TYPE=sqlite for a durable, shared
-    # backend (SqliteMemoryStorage, persisted in DATABASE_PATH).
+    # memory_storage_type "auto" (default) follows the database: durable "sql" memory
+    # when DATABASE_URL is explicitly set, else process-local "memory" (lost on restart,
+    # not shared across workers). Force with "sql"/"memory"; "sqlite" = legacy alias for
+    # "sql". Resolved by `effective_memory_backend`.
     memory_enabled: bool = True  # Enabled by default for better UX
-    memory_storage_type: Literal["memory", "sqlite"] = "memory"
+    memory_storage_type: Literal["auto", "memory", "sql", "sqlite"] = "auto"
     memory_max_messages: int = 100
     memory_auto_session: bool = True  # Auto-generate session_id from user_id
+
+    @property
+    def effective_memory_backend(self) -> Literal["memory", "sql"]:
+        """Resolve memory_storage_type to the concrete backend ("memory" or "sql").
+
+        "auto" follows the database: durable "sql" when DATABASE_URL is explicitly set,
+        else in-process "memory". "sqlite" is treated as "sql". Keeps the common case
+        ("point at Postgres, everything persists") a single setting, while leaving
+        "sql"/"memory" as explicit overrides (e.g. durable auth + ephemeral memory).
+        """
+        if self.memory_storage_type in ("sql", "sqlite"):
+            return "sql"
+        if self.memory_storage_type == "memory":
+            return "memory"
+        return "sql" if self.database_url is not None else "memory"
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """Engine URL: explicit DATABASE_URL, else a SQLite URL from DATABASE_PATH.
+
+        Keeps the legacy DATABASE_PATH working (including the /data volume path the
+        deployment guide sets) while allowing a full Postgres URL for cloud.
+        """
+        if self.database_url:
+            return self.database_url
+        # Forward slashes so a Windows path (C:\...) still forms a valid SQLite URL.
+        return f"sqlite+aiosqlite:///{self.database_path.replace(chr(92), '/')}"
 
 
 @lru_cache

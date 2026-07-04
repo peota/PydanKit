@@ -171,7 +171,7 @@ class MemoryManager:
 
         return MemoryStats(
             enabled=self.settings.memory_enabled,
-            storage_type=self.settings.memory_storage_type,
+            storage_type=self.settings.effective_memory_backend,
             total_sessions=total_sessions,
             total_messages=total_messages,
             max_messages=self.settings.memory_max_messages,
@@ -185,11 +185,13 @@ def get_memory_manager() -> MemoryManager:
     Returns:
         Initialized memory manager
     """
-    # Select the backend by memory_storage_type. SqliteMemoryStorage is imported
-    # lazily so the default path never requires aiosqlite (the [auth] extra).
+    # Resolve to a concrete backend (default "auto" follows DATABASE_URL — see
+    # Settings.effective_memory_backend). SqlMemoryStorage is imported lazily so the
+    # in-process path never requires SQLAlchemy.
     settings = get_settings()
-    if settings.memory_storage_type == "sqlite":
-        from src.memory.sqlite_storage import SqliteMemoryStorage
+    if settings.effective_memory_backend == "sql":
+        from src.db import get_engine
+        from src.memory.sql_storage import SqlMemoryStorage
 
-        return MemoryManager(SqliteMemoryStorage(settings.database_path))
+        return MemoryManager(SqlMemoryStorage(get_engine()))
     return MemoryManager(InMemoryStorage())

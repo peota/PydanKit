@@ -40,14 +40,21 @@ Issues = "https://github.com/peota/PydanKit/issues"
 # API (api.py imports the auth resolver at load time). Upper bounds keep a future
 # major from silently breaking a fresh clone.
 auth = [
+    "sqlalchemy[asyncio]>=2.0,<3.0",
     "aiosqlite>=0.19,<1.0",
     "bcrypt>=4.0,<5.0",
+]
+# PostgreSQL driver, for DATABASE_URL=postgresql+asyncpg://… (cloud / multi-instance).
+# Install alongside [api]: pip install -e ".[api,postgres]"
+postgres = [
+    "asyncpg>=0.29,<1.0",
 ]
 api = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     # The API server integrates auth (login/session routes, the resolver dependency),
     # so it pulls in the auth deps even when AUTH_ENABLED is false.
+    "sqlalchemy[asyncio]>=2.0,<3.0",
     "aiosqlite>=0.19,<1.0",
     "bcrypt>=4.0,<5.0",
 ]

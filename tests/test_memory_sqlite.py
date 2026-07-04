@@ -1,4 +1,4 @@
-"""Tests for SqliteMemoryStorage (ADR 0001, Phase 2) — offline, no API key.
+"""Tests for SqlMemoryStorage (ADR 0001, Phase 2) — offline, no API key.
 
 Requires the ``[auth]`` extra (aiosqlite).
 """
@@ -11,7 +11,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from src.memory.sqlite_storage import SqliteMemoryStorage
+from src.memory.sql_storage import SqlMemoryStorage
 
 
 def _turn(prompt: str, reply: str) -> list:
@@ -23,8 +23,8 @@ def _turn(prompt: str, reply: str) -> list:
 
 
 @pytest.fixture
-def store(tmp_path):
-    return SqliteMemoryStorage(str(tmp_path / "mem.db"))
+async def store(db_engine):
+    return SqlMemoryStorage(db_engine)
 
 
 async def test_save_and_get_roundtrip(store):
@@ -88,11 +88,10 @@ async def test_concurrent_appends_do_not_lose_turns(store):
     assert len(loaded) == 40  # 20 turns * 2 messages each
 
 
-async def test_persists_across_instances(tmp_path):
-    path = str(tmp_path / "mem.db")
-    first = SqliteMemoryStorage(path)
+async def test_persists_across_instances(db_engine):
+    first = SqlMemoryStorage(db_engine)
     await first.save_messages("s1", _turn("remember", "ok"))
     # A fresh instance (e.g. another worker/process) sees the same data.
-    second = SqliteMemoryStorage(path)
+    second = SqlMemoryStorage(db_engine)
     loaded = await second.get_messages("s1")
     assert loaded[0].parts[0].content == "remember"

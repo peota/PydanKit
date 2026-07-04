@@ -17,6 +17,7 @@ from fastapi import Depends, Header, HTTPException, Request, Response
 
 from src.auth.db import AuthStore, User
 from src.config import get_settings
+from src.db import get_engine
 
 SESSION_COOKIE = "pk_session"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -24,8 +25,8 @@ _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 @lru_cache
 def get_auth_store() -> AuthStore:
-    """Singleton auth store over the configured SQLite database."""
-    return AuthStore(get_settings().database_path)
+    """Singleton auth store over the shared engine (SQLite or Postgres via DATABASE_URL)."""
+    return AuthStore(get_engine())
 
 
 def _extract_token(

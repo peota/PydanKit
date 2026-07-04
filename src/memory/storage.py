@@ -147,7 +147,8 @@ class InMemoryStorage(MemoryStorage):
             # Try to extract user_id from session_id pattern "user:xyz"
             user_id = None
             if session_id.startswith("user:"):
-                user_id = session_id.split(":", 1)[1]
+                # Owner is the 2nd segment: user:<owner> or user:<owner>:<thread>.
+                user_id = session_id.split(":")[1]
 
             self._metadata[session_id] = SessionMetadata(
                 session_id=session_id,
