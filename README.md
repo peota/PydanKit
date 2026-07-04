@@ -18,16 +18,18 @@ A minimal, well-structured skeleton for building AI agents with [Pydantic AI](ht
 Two commands. `init` asks a few questions and writes a correct `.env` for your setup, so you never hand-edit config:
 
 ```bash
-uv run python -m src.main init      # creates the venv, installs, runs the setup wizard
-#   → name your agent; pick provider / storage / auth; it offers to install any extras
-# open .env and paste your API key into the one labeled slot, then:
+uv run python -m src.main init
+# paste your API key into the slot .env marks, then:
 uv run python -m src.main chat "What can you help me with?"
 ```
+
+`init` creates the venv, installs, and walks you through naming your agent and picking provider / storage / auth — then offers to install whatever extras that choice needs.
 
 No [uv](https://docs.astral.sh/uv/)? Use the standard flow — everything after is identical:
 
 ```bash
 python -m venv .venv && . .venv/bin/activate    # Windows: .\.venv\Scripts\Activate.ps1
+python -m pip install -U pip                     # 3.10/3.11 venvs ship pip too old for editable installs
 pip install -e .
 python -m src.main init
 ```
@@ -35,8 +37,8 @@ python -m src.main init
 Then explore:
 
 ```bash
-python -m src.main interactive     # chat with memory across turns
-python -m src.main serve           # dashboard at http://localhost:8000 (pick "web" in init, or: pip install -e .[api])
+python -m src.main interactive     # chat with memory
+python -m src.main serve           # web dashboard on :8000
 ```
 
 ## Customize your agent
@@ -71,8 +73,8 @@ async def my_tool(ctx: RunContext[AgentDeps], query: str) -> str:
 On by default. Create the first admin (there's no self-signup), then sign in on the dashboard:
 
 ```bash
-python -m src.main users --add alice --admin   # prompts for a password
-python -m src.main apikey --issue alice          # per-user API key (shown once)
+python -m src.main users --add alice --admin
+python -m src.main apikey --issue alice          # per-user API key, shown once
 ```
 
 The CLI is a trusted admin shell — it needs no login. Service accounts, admin panel, and shell-less bootstrap are covered in [CLAUDE.md](CLAUDE.md) / [ADR 0001](docs/adr/0001-authentication.md). CLI `chat`/`interactive` are local and unauthenticated by design; auth protects the API.
