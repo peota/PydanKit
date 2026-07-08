@@ -21,6 +21,15 @@ _test_db = os.path.join(tempfile.gettempdir(), "pydankit_test.db").replace(chr(9
 os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_test_db}")
 os.environ.setdefault("MEMORY_STORAGE_TYPE", "memory")
 
+# Tests configure the app purely through os.environ (which they monkeypatch). Stop
+# pydantic-settings from ALSO reading the developer's real .env file at instantiation,
+# so a value a test deletes (e.g. monkeypatch.delenv("DOCS_ENABLED")) actually stays
+# gone instead of being silently re-read from .env. Production is unaffected — this
+# only mutates the in-process Settings class during the test session.
+from src.config import Settings  # noqa: E402
+
+Settings.model_config["env_file"] = None
+
 # Match the app's Windows event-loop policy so async tests behave the same.
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
