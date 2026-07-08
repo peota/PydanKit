@@ -17,6 +17,7 @@ class SessionMetadata(BaseModel):
                 "updated_at": "2025-01-21T10:35:00",
                 "message_count": 8,
                 "user_id": "alice",
+                "preview": "What's the weather in Paris?",
                 "tags": {"source": "api"},
             }
         }
@@ -29,6 +30,10 @@ class SessionMetadata(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
     message_count: int = Field(default=0, description="Number of messages in session")
     user_id: str | None = Field(default=None, description="Associated user ID")
+    preview: str | None = Field(
+        default=None,
+        description="Short title for the session (its first user message), or None when empty",
+    )
     tags: dict[str, str] = Field(default_factory=dict, description="Additional metadata tags")
 
 

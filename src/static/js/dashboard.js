@@ -23,9 +23,7 @@ function initMobileKeyboard() {
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', () => {
             // Scroll to bottom when keyboard opens/closes
-            requestAnimationFrame(() => {
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            });
+            scrollToBottom();
         });
     }
 
@@ -33,7 +31,7 @@ function initMobileKeyboard() {
     chatInput.addEventListener('focus', () => {
         setTimeout(() => {
             chatInput.scrollIntoView({ behavior: 'smooth', block: 'end' });
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            scrollToBottom();
         }, 300);
     });
 }
@@ -185,7 +183,10 @@ function renderSessionRow(s) {
     open.className = 'flex-1 min-w-0 text-left';
     const title = document.createElement('p');
     title.className = 'text-sm font-medium text-slate-700 dark:text-slate-200 truncate';
-    title.textContent = threadId ? 'Session' : 'Default';
+    // Title = the session's first user message (from the server), so rows are
+    // distinguishable. Fall back to a generic label for an as-yet-empty session.
+    title.textContent = s.preview || (threadId ? 'Session' : 'Default');
+    open.title = s.preview || '';
     const meta = document.createElement('p');
     meta.className = 'text-[10px] text-slate-400 dark:text-slate-500';
     const n = s.message_count;
@@ -240,7 +241,7 @@ function renderHistory(messages) {
     chatMessages.innerHTML = '';
     isFirstMessage = false;
     for (const m of messages) appendMessage(m.role, m.content);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    scrollToBottom();
 }
 
 async function deleteSession(fullSessionId) {
@@ -442,6 +443,22 @@ function setConfigErrorState(info) {
     modelName.textContent = info.model;
 }
 
+// Keep the transcript pinned to the newest message. rAF lets layout settle first
+// (markdown re-render changes height) before we jump. behavior:'instant' overrides
+// the container's CSS `scroll-behavior: smooth`, which would otherwise animate every
+// jump and visibly lag behind a fast-streaming reply.
+function scrollToBottom() {
+    requestAnimationFrame(() => {
+        chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'instant' });
+    });
+}
+
+// True when the view is already at/near the bottom. Used to auto-follow a streaming
+// reply only while the user hasn't deliberately scrolled up to read earlier text.
+function isNearBottom(threshold = 120) {
+    return chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < threshold;
+}
+
 function appendMessage(role, content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `max-w-4xl mx-auto flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`;
@@ -481,7 +498,22 @@ function appendMessage(role, content) {
     }
 
     chatMessages.appendChild(messageDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    scrollToBottom();
+}
+
+// Force every link in a rendered reply to open in a new tab, with a hardened rel so
+// the opened page can't reach back through window.opener. Registered once as a
+// DOMPurify hook so it applies to the sanitized output, not the raw markdown.
+let _linkTargetHookAdded = false;
+function ensureLinkTargetHook() {
+    if (_linkTargetHookAdded || !window.DOMPurify) return;
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+        if (node.tagName === 'A' && node.getAttribute('href')) {
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+    _linkTargetHookAdded = true;
 }
 
 // Render untrusted agent text as sanitized markdown. marked builds the HTML,
@@ -489,6 +521,7 @@ function appendMessage(role, content) {
 // libs failed to load, fall back to plain text so a reply never renders raw.
 function renderMarkdown(el, text) {
     if (window.marked && window.DOMPurify) {
+        ensureLinkTargetHook();
         el.innerHTML = DOMPurify.sanitize(marked.parse(text, { breaks: true }));
     } else {
         el.textContent = text;
@@ -532,6 +565,7 @@ async function sendMessage(prompt) {
     // Create placeholder for agent message
     const agentMessageDiv = createAgentMessagePlaceholder();
     chatMessages.appendChild(agentMessageDiv);
+    scrollToBottom();
 
     const contentElement = agentMessageDiv.querySelector('.message-content');
     let fullContent = '';
@@ -598,8 +632,11 @@ async function sendMessage(prompt) {
                         if (bubble) bubble.classList.remove('thinking');
                     }
 
+                    // Auto-follow the stream only if the user is already at the bottom;
+                    // if they've scrolled up to read, don't yank them back down.
+                    const stick = isNearBottom();
                     renderMarkdown(contentElement, fullContent);
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    if (stick) scrollToBottom();
                 }
             }
         }
