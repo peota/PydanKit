@@ -4,11 +4,29 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 
 from src.memory.models import SessionMetadata
 
 logger = logging.getLogger(__name__)
+
+PREVIEW_MAX_CHARS = 80
+
+
+def make_preview(messages: list[ModelMessage]) -> str | None:
+    """A short title for a session: its first user prompt, whitespace-collapsed and
+    trimmed to ``PREVIEW_MAX_CHARS``. Returns None when there's no user text yet.
+
+    Shared by every backend so session titles are derived identically everywhere.
+    """
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart) and isinstance(part.content, str):
+                    text = " ".join(part.content.split())
+                    if text:
+                        return text[:PREVIEW_MAX_CHARS]
+    return None
 
 
 class MemoryStorage(ABC):
@@ -136,12 +154,15 @@ class InMemoryStorage(MemoryStorage):
     async def _update_metadata(self, session_id: str) -> None:
         """Update metadata for a session."""
         now = datetime.now()
-        message_count = len(self._sessions.get(session_id, []))
+        messages = self._sessions.get(session_id, [])
+        message_count = len(messages)
+        preview = make_preview(messages)
 
         if session_id in self._metadata:
             # Update existing metadata
             self._metadata[session_id].updated_at = now
             self._metadata[session_id].message_count = message_count
+            self._metadata[session_id].preview = preview
         else:
             # Create new metadata
             # Try to extract user_id from session_id pattern "user:xyz"
@@ -156,4 +177,5 @@ class InMemoryStorage(MemoryStorage):
                 updated_at=now,
                 message_count=message_count,
                 user_id=user_id,
+                preview=preview,
             )

@@ -25,16 +25,20 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.db import create_engine_from_url, ensure_schema, memory_sessions
 from src.memory.models import SessionMetadata
-from src.memory.storage import MemoryStorage
+from src.memory.storage import MemoryStorage, make_preview
 
 logger = logging.getLogger(__name__)
 
+# The messages blob is included so we can derive a per-session title (first user
+# message). Session lists are sidebar-sized, so parsing each blob is cheap enough;
+# denormalize a title column (with a migration) if you ever list thousands.
 _SESSION_COLUMNS = (
     memory_sessions.c.session_id,
     memory_sessions.c.user_id,
     memory_sessions.c.created_at,
     memory_sessions.c.updated_at,
     memory_sessions.c.message_count,
+    memory_sessions.c.messages,
 )
 
 
@@ -52,6 +56,7 @@ def _to_metadata(row) -> SessionMetadata:
         updated_at=datetime.fromisoformat(row["updated_at"]),
         message_count=row["message_count"],
         user_id=row["user_id"],
+        preview=make_preview(ModelMessagesTypeAdapter.validate_json(row["messages"])),
     )
 
 
