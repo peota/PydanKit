@@ -30,19 +30,14 @@ anti-patterns. Do not restate or contradict it. Key points that shape this wizar
   design**; don't add a login to it.
 - **Definition of done:** `ruff check src tests` + `ruff format src tests` clean, `pytest`
   green, a `TestModel` test for each new tool, and an eval case for behavior changes.
-- **Design rationale is captured in internal ADRs** (`docs/adr/`, `docs/glossary.md`) — kept
-  local via `.gitignore` and **not present in a fresh clone**, so this skill is written to
-  stand alone. If those files *are* present, read them for the *why* behind onboarding/config,
-  auth, and storage decisions (e.g. ADR 0004, configuration legibility, frames the setup
-  below) and don't contradict an Accepted ADR.
 
 ### Configuration legibility, and deriving the run command from `.env`
 
 The template's setup pain is **not** a missing UI — it's that configuration *intent* lives in
 **derived, conditional settings** that are invisible in `.env` and legible only to whoever
-wrote the code (the "curse of knowledge"; captured in internal ADR 0004, local-only). Your
-job in this wizard is to close that gap: translate the user's **intent** into the **resolved
-values**, and show both — never make them reverse-engineer it.
+wrote the code (the "curse of knowledge"). Your job in this wizard is to close that gap:
+translate the user's **intent** into the **resolved values**, and show both — never make
+them reverse-engineer it.
 
 **1. Make the resolved config visible.** After `init` (or after you edit `.env`), read the
 repo-root `.env` and echo back what it actually resolves to — especially the derived settings
@@ -55,8 +50,8 @@ the user cannot see in the file:
   actual DB target.
 
 Present it as **intent → resolved value**, e.g. *"You chose durable memory → `MEMORY_STORAGE_TYPE`
-resolves to `sql`, DB = `postgresql://…`; conversations survive a restart."* This manual echo
-is the human stand-in for the planned `doctor` command (below).
+resolves to `sql`, DB = `postgresql://…`; conversations survive a restart."* Always show this
+echo so the user can see what their `.env` actually does.
 
 **2. Derive the run command (never default to the CLI).** Read `.env` and pick the command that
 matches the setup the user actually chose during `init`:
@@ -76,15 +71,9 @@ The CLI always works as an unauthenticated smoke test, so you may mention it *in
 the headline command must match the `.env` setup.
 
 **3. Warn on consequential changes.** If the user changes **storage backend or auth** after data
-exists, say so plainly — these are *data/security* changes, not cosmetic config (ADR 0004 →
-"consequential change"): switching `DATABASE_URL` to a new/empty database does **not** migrate
-existing `users`/`tokens`/`memory`, and turning auth on with no users and no `ADMIN_*` seed locks
-them out of the dashboard.
-
-**Planned, NOT yet implemented — do not instruct users to run these.** ADR 0004 adds
-`init --preset <scenario>` (a transparent `.env` generator) and a `doctor` command that prints the
-resolved config. Until they ship, *you* perform the resolution above manually. Never tell a user to
-run `init --preset` or `doctor` — those commands do not exist yet.
+exists, say so plainly — these are *data/security* changes, not cosmetic config: switching
+`DATABASE_URL` to a new/empty database does **not** migrate existing `users`/`tokens`/`memory`,
+and turning auth on with no users and no `ADMIN_*` seed locks them out of the dashboard.
 
 ### Your Workflow
 
