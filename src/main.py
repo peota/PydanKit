@@ -415,7 +415,7 @@ def serve(
 ) -> None:
     """Start the FastAPI server (requires 'api' extras).
 
-    Binds ``$PORT`` when set — cloud hosts (Railway, Cloud Run, ...) inject it — and
+    Binds ``$PORT`` when set (cloud hosts like Railway or Cloud Run inject it) and
     falls back to ``--port``/8000 otherwise. Host defaults to 0.0.0.0 for containers.
     """
     try:

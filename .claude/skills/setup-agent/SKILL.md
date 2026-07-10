@@ -30,36 +30,61 @@ anti-patterns. Do not restate or contradict it. Key points that shape this wizar
   design**; don't add a login to it.
 - **Definition of done:** `ruff check src tests` + `ruff format src tests` clean, `pytest`
   green, a `TestModel` test for each new tool, and an eval case for behavior changes.
+- **Design rationale is captured in internal ADRs** (`docs/adr/`, `docs/glossary.md`) — kept
+  local via `.gitignore` and **not present in a fresh clone**, so this skill is written to
+  stand alone. If those files *are* present, read them for the *why* behind onboarding/config,
+  auth, and storage decisions (e.g. ADR 0004, configuration legibility, frames the setup
+  below) and don't contradict an Accepted ADR.
 
-### Deriving the run command from `.env` (do this before showing any "run it with" line)
+### Configuration legibility, and deriving the run command from `.env`
 
-**Never default to the CLI.** Before you present validation smoke-tests (Phase 4) or the
-final "run it with" line (Phase 5), read the repo-root `.env` and pick the command that
+The template's setup pain is **not** a missing UI — it's that configuration *intent* lives in
+**derived, conditional settings** that are invisible in `.env` and legible only to whoever
+wrote the code (the "curse of knowledge"; captured in internal ADR 0004, local-only). Your
+job in this wizard is to close that gap: translate the user's **intent** into the **resolved
+values**, and show both — never make them reverse-engineer it.
+
+**1. Make the resolved config visible.** After `init` (or after you edit `.env`), read the
+repo-root `.env` and echo back what it actually resolves to — especially the derived settings
+the user cannot see in the file:
+- **`effective_memory_backend`** — `MEMORY_STORAGE_TYPE=auto` resolves to `sql` **iff**
+  `DATABASE_URL` is set, else `memory` (in-process, **lost on restart**). State which is active.
+- **`docs_ui_enabled`** — `/docs` follows `DEBUG` unless `DOCS_ENABLED` is set explicitly.
+  State whether interactive docs are on.
+- **`sqlalchemy_url`** — `DATABASE_URL` if set, else derived from `DATABASE_PATH`. State the
+  actual DB target.
+
+Present it as **intent → resolved value**, e.g. *"You chose durable memory → `MEMORY_STORAGE_TYPE`
+resolves to `sql`, DB = `postgresql://…`; conversations survive a restart."* This manual echo
+is the human stand-in for the planned `doctor` command (below).
+
+**2. Derive the run command (never default to the CLI).** Read `.env` and pick the command that
 matches the setup the user actually chose during `init`:
+   - Note `AUTH_ENABLED` (missing → treat as `true`); whether this is a **server/dashboard**
+     setup (signalled by `CORS_ORIGINS`, written by `init` only for that scenario, and/or the
+     `[api]`/`[auth]` extras); and `MODEL_NAME` + whether the provider key is filled (not an
+     `sk-...PASTE` placeholder).
+   - **Server/dashboard + auth off** → `python -m src.main serve --port 8000`, open
+     `http://localhost:8000/`. Primary path — do **not** lead with `chat`.
+   - **Server/dashboard + auth on** → create a user (`python -m src.main users --add <name>
+     --admin`), then `serve`, and log in at `http://localhost:8000/`.
+   - **CLI-only** (no `CORS_ORIGINS`, no api extra) → `python -m src.main chat "..."` or
+     `interactive`.
+   - If a provider key is still a placeholder, tell the user to paste it into `.env` first.
 
-1. **Read `.env`** and note three things:
-   - `AUTH_ENABLED` (`true`/`false`, default treat missing as `true`)
-   - Whether this is a **server/dashboard** setup — signalled by `CORS_ORIGINS` being
-     present (the `init` wizard writes it only for the serve/dashboard scenario), and/or
-     the `[api]`/`[auth]` extras being installed.
-   - `MODEL_NAME` + whether the matching provider key is filled in (not a `sk-...PASTE`
-     placeholder).
+The CLI always works as an unauthenticated smoke test, so you may mention it *in addition* — but
+the headline command must match the `.env` setup.
 
-2. **Choose the run command:**
-   - **Server/dashboard + auth off** → `python -m src.main serve --port 8000`, then open
-     the dashboard at `http://localhost:8000/`. This is the primary way to use it — do
-     **not** lead with `chat`.
-   - **Server/dashboard + auth on** → first create a user
-     (`python -m src.main users --add <name> --admin`), then
-     `python -m src.main serve --port 8000` and log in at `http://localhost:8000/`.
-   - **CLI-only setup** (no `CORS_ORIGINS`, no api extra) → `python -m src.main chat "..."`
-     or `python -m src.main interactive`.
+**3. Warn on consequential changes.** If the user changes **storage backend or auth** after data
+exists, say so plainly — these are *data/security* changes, not cosmetic config (ADR 0004 →
+"consequential change"): switching `DATABASE_URL` to a new/empty database does **not** migrate
+existing `users`/`tokens`/`memory`, and turning auth on with no users and no `ADMIN_*` seed locks
+them out of the dashboard.
 
-3. Whatever the run mode, if a provider key is still a placeholder, remind the user to
-   paste it into `.env` first.
-
-The CLI (`python -m src.main chat`) always works as an unauthenticated smoke test, so you
-may still mention it *in addition* — but the headline command must match the `.env` setup.
+**Planned, NOT yet implemented — do not instruct users to run these.** ADR 0004 adds
+`init --preset <scenario>` (a transparent `.env` generator) and a `doctor` command that prints the
+resolved config. Until they ship, *you* perform the resolution above manually. Never tell a user to
+run `init --preset` or `doctor` — those commands do not exist yet.
 
 ### Your Workflow
 
@@ -101,7 +126,8 @@ replies conversationally, skip the model and keep `output_type=str`.
 2. `pytest` is green, including a new `TestModel` test for each tool you added
 3. Agent initializes and tools are registered (in the `TOOLS` list)
 4. Run a sample query if a provider key is configured, using the command that matches the
-   user's `.env` (see "Deriving the run command from `.env`" above). The CLI
+   user's `.env` (see "Configuration legibility, and deriving the run command from `.env`"
+   above — and echo back the resolved config). The CLI
    (`python -m src.main chat "..."`) is unauthenticated by design and always works as a
    smoke test, but if the setup is serve/dashboard, verify that path too.
 5. Provide troubleshooting steps if issues found
@@ -109,7 +135,8 @@ replies conversationally, skip the model and keep `output_type=str`.
 **Phase 5: Next Steps**
 1. Summarize what was customized
 2. Provide example commands to test — the headline "run it with" line **must** be derived
-   from `.env` (see "Deriving the run command from `.env`" above), not defaulted to the CLI
+   from `.env` (see "Configuration legibility, and deriving the run command from `.env`"
+   above), not defaulted to the CLI
 3. Suggest next steps (adding tests, documentation, deployment)
 4. Offer to continue with additional customization
 
