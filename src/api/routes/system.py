@@ -20,6 +20,10 @@ class HealthResponse(BaseModel):
     name: str
     model: str
     version: str
+    # Whether per-user auth is on. Public (so the dashboard can decide, pre-login,
+    # whether to show the login form or — when auth is off but a legacy API_KEY gates
+    # the API — an access notice instead of a dead-end login).
+    auth_enabled: bool
 
 
 class InfoResponse(BaseModel):
@@ -55,6 +59,7 @@ async def health_check() -> HealthResponse:
         name=settings.agent_name,
         model=settings.model_name,
         version=APP_VERSION,
+        auth_enabled=settings.auth_enabled,
     )
 
 
