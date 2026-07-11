@@ -378,6 +378,29 @@
         </div>
     </div>
 
+    <!-- Access notice: auth is OFF but a legacy API_KEY gates the API, so the browser
+         dashboard can't authenticate (there is no login in this mode). Shown instead of a
+         dead-end login form. -->
+    <div id="access-notice-overlay" class="hidden fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+        <div class="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 shadow-xl">
+            <div class="flex flex-col items-center text-center mb-4">
+                <div class="w-10 h-10 bg-slate-900 dark:bg-slate-800 rounded-lg flex items-center justify-center shadow-sm p-1.5 mb-3">
+                    <img src="/static/assets/logo.svg" alt="Logo" class="w-6 h-6 brightness-0 invert" />
+                </div>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white">API key required</h2>
+            </div>
+            <p class="text-sm text-slate-500 dark:text-slate-400">
+                This instance runs with authentication off but is gated by a shared
+                <code class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-xs">API_KEY</code>.
+                The web dashboard can't send that header, so it isn't available here.
+            </p>
+            <ul class="text-sm text-slate-500 dark:text-slate-400 mt-3 list-disc pl-5 space-y-1">
+                <li>Call the API directly with an <code class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-xs">X-API-Key</code> header, or</li>
+                <li>Set <code class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-xs">AUTH_ENABLED=true</code> to sign in with a user account here.</li>
+            </ul>
+        </div>
+    </div>
+
     <!-- Login overlay (shown only when auth is enabled and the caller isn't signed in) -->
     <div id="login-overlay" class="hidden fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
         <div class="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 shadow-xl">
@@ -416,6 +439,6 @@
     </div>
 
     <!-- ?v cache-busts the asset when the dashboard changes; the server also sends no-cache -->
-    <script src="/static/js/dashboard.js?v=0.7.2"></script>
+    <script src="/static/js/dashboard.js?v=0.7.3"></script>
 </body>
 </html>

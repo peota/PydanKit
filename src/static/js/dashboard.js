@@ -274,6 +274,13 @@ function showLogin() {
     if (loginUsername) loginUsername.focus();
 }
 
+// Shown when auth is off but a legacy API_KEY gates the API: there is no login in
+// this mode, so we explain the situation instead of trapping the user at a form.
+function showAccessNotice() {
+    const el = document.getElementById('access-notice-overlay');
+    if (el) el.classList.remove('hidden');
+}
+
 function hideLogin() {
     if (loginOverlay) loginOverlay.classList.add('hidden');
     if (loginError) loginError.classList.add('hidden');
@@ -300,9 +307,20 @@ async function loadDashboard() {
             authedFetch('/info')
         ]);
 
-        // Not signed in (auth enabled) -> show the login overlay and stop.
+        // /info returns 401 in two very different situations:
+        //  - auth ENABLED and not signed in -> show the login form.
+        //  - auth DISABLED but a legacy API_KEY gates the API -> the browser can't send
+        //    X-API-Key and password login is disabled, so a login form is a dead end;
+        //    show an access notice instead. /health is public (200 either way) and now
+        //    reports auth_enabled, so it tells us which case we're in.
         if (infoResponse.status === 401) {
-            showLogin();
+            let authEnabled = true;
+            if (healthResponse.ok) {
+                try { authEnabled = (await healthResponse.json()).auth_enabled !== false; }
+                catch (e) { /* fall back to showing login */ }
+            }
+            if (authEnabled) showLogin();
+            else showAccessNotice();
             return;
         }
 
